@@ -391,5 +391,218 @@ export function createShapes(N) {
     NEB_COL[j + 2] = blue * intensity;
   }
 
-  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, FACE_COL, NEB, NEB_COL, TREE, TREE_COL, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ };
+  // A separate design consumes randomness only after every pre-existing draw.
+  // Nothing above, including the v1 face, nebula, tree or their colours, changes.
+  const FACE_V2 = createLightFace(N, R, gauss);
+  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, FACE_COL, NEB, NEB_COL, TREE, TREE_COL, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ, FACE_V2 };
+}
+
+// Light suggests the surface: an open rim, cheek sweeps and a few contour dots.
+// All random state is supplied by createShapes; this design has no side effects.
+function createLightFace(N, R, gauss) {
+  const I = {};
+  let cursor = 0;
+  for (const [name, share] of [
+    ['mouth', 0.20], ['eyeL', 0.05], ['eyeR', 0.05],
+    ['browL', 0.02], ['browR', 0.02], ['rim', 0.25],
+    ['nose', 0.03], ['interior', 0.15]
+  ]) I[name] = [cursor, cursor += Math.round(N * share)];
+  I.halo = [cursor, N];
+  const FEATURE_END = I.browR[1];
+  // Arc, ribbon thickness, roll and seam profile: evaluated once, then animated.
+  const LIP = new Float64Array((I.mouth[1] - I.mouth[0]) * 4);
+  const FACE = new Float32Array(N * 3), FACE_COL = new Float32Array(N * 3);
+  const P1 = new Float32Array(N), P2 = new Float32Array(N);
+  const P3 = new Float32Array(N), P4 = new Float32Array(N);
+  const EYE_X = 0.84, EYE_Y = 0.52;
+
+  function widthAt(y) {
+    const v = (y - 0.08) / 2.8;
+    const taper = 1 - 0.27 * Math.pow(Math.max(0, Math.min(1, (-y - 0.35) / 2.37)), 0.8);
+    return 1.86 * Math.sqrt(Math.max(0, 1 - v * v)) * taper;
+  }
+  function surfZ(x, y) {
+    const width = widthAt(y);
+    if (width < 0.001) return 0;
+    const v = (y - 0.08) / 2.8, u = x / width;
+    // A shallow smooth light volume, without sockets, nostrils or skin anatomy.
+    return 1.83 * Math.sqrt(Math.max(0, 1 - v * v)) *
+      Math.sqrt(Math.max(0, 1 - u * u));
+  }
+  function place(i, x, y, z) {
+    const j = i * 3;
+    FACE[j] = x; FACE[j + 1] = y; FACE[j + 2] = z;
+  }
+  function colour(i, light, warmth = 0) {
+    const j = i * 3;
+    // Cool pearl throughout; the mouth alone catches a softly warmer highlight.
+    FACE_COL[j] = light * (0.72 + warmth * 0.28);
+    FACE_COL[j + 1] = light * (0.86 + warmth * 0.09);
+    FACE_COL[j + 2] = light * (1 - warmth * 0.14);
+  }
+  function frontalLight(x, y) {
+    // A broad source above and slightly left keeps the opposite cheek sparse.
+    return 0.36 + 0.64 * Math.max(0, Math.min(1, 0.61 + y * 0.13 - x * 0.14));
+  }
+
+  for (let i = I.mouth[0]; i < I.mouth[1]; i++) {
+    const u = R() * 2 - 1, upper = R() < 0.46 ? 1 : -1;
+    const layer = R();
+    // Retain a distinct outline and a dim seam between luminous lip volumes.
+    // P3 measures across the lip: zero is its meeting line, one its outer edge.
+    const depth = layer < 0.21 ? 0.97 + R() * 0.03 :
+      layer < 0.30 ? R() * 0.045 : Math.pow(R(), 0.68);
+    const jitter = gauss() * 0.004;
+    P1[i] = u; P2[i] = upper; P3[i] = depth; P4[i] = jitter;
+    const mu = P1[i], lipEdge = Math.max(0, 1 - mu * mu), arc = Math.sqrt(lipEdge);
+    const profile = (i - I.mouth[0]) * 4;
+    const lipBow = Math.exp(-Math.pow((Math.abs(mu) - 0.30) / 0.20, 2));
+    LIP[profile] = arc;
+    LIP[profile + 1] = upper > 0 ? arc * (0.105 + 0.095 * lipBow) : 0.225 * Math.pow(lipEdge, 0.8);
+    LIP[profile + 2] = 0.08 * Math.sin(P3[i] * Math.PI);
+    LIP[profile + 3] = -0.018 * Math.cos(mu * Math.PI) * lipEdge;
+    const edge = Math.sqrt(Math.max(0, 1 - u * u));
+    const bow = Math.exp(-Math.pow((Math.abs(u) - 0.30) / 0.18, 2));
+    const thickness = upper > 0 ? edge * (0.105 + 0.09 * bow) : 0.20 * Math.pow(edge, 0.8);
+    const x = u * 0.72 * 1.006;
+    const y = -1.38 + 0.05 * 0.32 * u * u + upper * thickness * depth + jitter;
+    place(i, x, y, surfZ(x, y) + 0.08 + Math.sin(Math.PI * depth) * 0.11);
+    let light = layer < 0.21 ? 0.204 + R() * 0.102 :
+      layer < 0.30 ? 0.033 + R() * 0.034 : 0.09 + R() * 0.14;
+    light *= 0.48 + 0.52 * Math.pow(edge, 0.45);
+    colour(i, light, 0.9);
+  }
+
+  for (const side of [-1, 1]) {
+    const eye = side < 0 ? I.eyeL : I.eyeR;
+    for (let i = eye[0]; i < eye[1]; i++) {
+      const u = R() * 2 - 1, glow = R() < 0.66 ? 1 : 0;
+      const depth = glow ? Math.pow(R(), 0.65) : gauss() * 0.005;
+      const jitter = gauss() * 0.004;
+      P1[i] = u; P2[i] = glow; P3[i] = depth; P4[i] = jitter;
+      const almond = Math.pow(Math.max(0, 1 - u * u), 0.8);
+      const x = side * EYE_X + u * 0.47;
+      const y = EYE_Y + u * side * 0.035 + almond * (glow ? 0.10 - depth * 0.17 : 0.14) + jitter;
+      place(i, x, y, surfZ(x, y) + 0.045);
+      const light = glow ? (0.018 + R() * 0.07) * (1 - depth * 0.55) : 0.18 + R() * 0.16;
+      colour(i, light * (0.4 + 0.6 * almond), 0.2);
+    }
+    const brow = side < 0 ? I.browL : I.browR;
+    for (let i = brow[0]; i < brow[1]; i++) {
+      const u = R(), jitter = gauss() * 0.008;
+      P1[i] = u; P2[i] = jitter;
+      const x = side * (0.34 + 1.02 * u);
+      const y = 1.13 + 0.14 * Math.sin(Math.PI * u) - u * 0.04 + jitter;
+      place(i, x, y, surfZ(x, y) + 0.025);
+      colour(i, (0.044 + R() * 0.075) * (0.3 + 0.7 * Math.sin(Math.PI * u)) * 1.3, 0.08);
+    }
+  }
+
+  for (let i = I.rim[0]; i < I.rim[1]; i++) {
+    const side = R() < 0.5 ? -1 : 1, kind = R();
+    const core = R() < 0.28;
+    const spread = core ? 0.009 : 0.035 + R() * 0.055;
+    let x, y, z, light;
+    if (kind < 0.64) {
+      // Both sides join in one small rounded chin; no line closes the crown.
+      const t = R() * 2.25;
+      y = 0.08 - 2.8 * Math.cos(t);
+      x = side * widthAt(y) * (0.986 - Math.abs(gauss()) * spread);
+      y += gauss() * spread * 0.45;
+      z = surfZ(x, y);
+      light = core ? 0.22 + R() * 0.15 : 0.025 + R() * 0.068;
+      // Temples gradually become particles rather than ending in a hard cap.
+      light *= 1 - Math.max(0, y - 0.85) * 0.46;
+    } else if (kind < 0.93) {
+      // A cheekbone catches one sweeping stroke, flowing up into the temple.
+      const u = R(), band = R() < 0.72 ? 0 : 1;
+      x = side * (0.62 + 0.98 * u + band * 0.045) + gauss() * spread;
+      y = -0.42 + 0.31 * u + 0.16 * Math.sin(Math.PI * u) - band * 0.08 + gauss() * spread * 0.65;
+      z = surfZ(x, y) + 0.025;
+      light = (core ? 0.14 + R() * 0.15 : 0.018 + R() * 0.05) * Math.sin(Math.PI * (0.08 + u * 0.84));
+    } else {
+      // Faint broken accents at the temples merge into the escaping head light.
+      const u = R();
+      y = 0.55 + 1.55 * u;
+      x = side * widthAt(y) * (0.88 + 0.035 * u) + gauss() * spread;
+      z = surfZ(x, y) + gauss() * 0.03;
+      light = (0.02 + R() * 0.07) * (1 - u * 0.65);
+    }
+    place(i, x, y, z);
+    colour(i, light * frontalLight(x, y) * 3);
+  }
+
+  for (let i = I.nose[0]; i < I.nose[1]; i++) {
+    const u = R(), glint = R() < 0.21;
+    const y = 0.91 - 1.58 * u;
+    const x = -0.065 - 0.042 * Math.sin(Math.PI * u) + gauss() * (glint ? 0.007 : 0.027);
+    place(i, x, y, surfZ(x, y) + 0.025);
+    const taper = Math.pow(Math.sin(Math.PI * u), 0.7);
+    colour(i, (glint ? 0.105 + R() * 0.08 : 0.013 + R() * 0.038) * taper * 1.6);
+  }
+
+  for (let i = I.interior[0]; i < I.interior[1]; i++) {
+    const side = R() < 0.5 ? -1 : 1, region = R();
+    P4[i] = R() * 0.9; // Seeded membership for the live density control.
+    // Each short dotted segment bends with a cheek, forehead or chin plane.
+    // The centres of the face stay mostly empty; there are no latitude rings.
+    const u = (Math.floor(R() * 58) + R() * 0.18) / 58;
+    let x, y, light;
+    if (region < 0.56) {
+      const band = Math.floor(R() * 7);
+      x = side * (0.50 + u * 1.03);
+      y = -0.59 - band * 0.09 + 0.42 * u + 0.14 * Math.sin(Math.PI * u);
+      light = (0.014 + R() * 0.045) * (0.3 + 0.7 * Math.sin(Math.PI * u));
+    } else if (region < 0.79) {
+      const band = Math.floor(R() * 6);
+      x = side * (0.17 + u * 1.25);
+      y = 1.49 + band * 0.14 + 0.15 * Math.sin(Math.PI * u) - u * u * 0.15;
+      light = (0.012 + R() * 0.045) * (1 - band * 0.12);
+    } else {
+      const band = Math.floor(R() * 5);
+      x = side * u * (0.75 - band * 0.064);
+      y = -1.83 - band * 0.12 + u * u * 0.16;
+      light = 0.012 + R() * 0.028;
+    }
+    x += gauss() * 0.012; y += gauss() * 0.006;
+    place(i, x, y, surfZ(x, y) + 0.008);
+    colour(i, light * frontalLight(x, y) * 3);
+  }
+
+  for (let i = I.halo[0]; i < I.halo[1]; i++) {
+    const side = R() < 0.5 ? -1 : 1, kind = R();
+    const escape = Math.pow(R(), 1.65);
+    let x, y, z;
+    if (kind < 0.57) {
+      // Released points leave the temples and crown, receding into the back.
+      const angle = 0.28 + R() * 1.48;
+      y = 0.08 + Math.cos(angle) * 2.8;
+      x = side * widthAt(y) * (0.83 + R() * 0.24);
+      z = surfZ(x, y) * (0.24 + R() * 0.5);
+      x += side * escape * (0.12 + R() * 0.72);
+      y += escape * (0.08 + R() * 0.68);
+      z -= escape * (0.35 + R() * 1.0);
+    } else {
+      // A broad, uneven rear cloud replaces the v1 orbital hoop entirely.
+      const angle = R() * Math.PI * 2;
+      const radius = 2.1 + escape * 1.35;
+      x = Math.cos(angle) * radius * 0.91 + gauss() * 0.14;
+      y = 0.3 + Math.sin(angle) * radius * 0.88 + gauss() * 0.16;
+      z = -0.38 - R() * 1.8 - escape * 0.5;
+    }
+    place(i, x, y, z);
+    // Motion contract: P1 phase; P2 drift amplitude; P3 angular speed;
+    // P4 escape fraction (zero is attached, one has dissolved into the halo).
+    P1[i] = R() * Math.PI * 2;
+    P2[i] = 0.035 + escape * 0.145;
+    P3[i] = 0.12 + R() * 0.14;
+    P4[i] = escape;
+    const sparkle = R() < 0.024;
+    const light = (sparkle ? 0.16 + R() * 0.12 : 0.015 + R() * 0.057) * (1 - escape * 0.62);
+    colour(i, light * (sparkle ? 3.4 : 5.1));
+  }
+
+  // These snapshots are read-only sources for live colour tuning and drift.
+  const BASE = new Float32Array(FACE), BASE_COL = new Float32Array(FACE_COL);
+  return { version: 'v2', I, FEATURE_END, P1, P2, P3, P4, LIP, FACE, BASE, FACE_COL, BASE_COL, EYE_X, EYE_Y, surfZ };
 }

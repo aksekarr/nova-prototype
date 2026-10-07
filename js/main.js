@@ -10,7 +10,9 @@ const parsedN = requestedN === null || requestedN.trim() === '' ? NaN : Number(r
 const N = Number.isFinite(parsedN) ? Math.max(4000, Math.min(64000, Math.round(parsedN))) : defaultN;
 document.getElementById('r-n').textContent = N.toLocaleString('en-GB');
 
-const shapes = createShapes(N);
+const designs = createShapes(N);
+const shapes = new URLSearchParams(window.location.search).get('face') === 'v1'
+  ? designs : { ...designs, ...designs.FACE_V2 };
 const face = createFace(shapes, reduce);
 const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral', speaking: false };
 const el = {
@@ -58,6 +60,7 @@ function restCaption(text) {
 
 startStage({
   shapes, reduce, state,
+  applyFaceTuning: face.applyTuning,
   onFrame: dt => voice.update(dt),
   updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape())
 });

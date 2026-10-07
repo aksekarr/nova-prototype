@@ -23,11 +23,16 @@ const TUNING = {
   glintStrength: 1,
   faceFrame: 0.44,
   shapeFrame: 0.7,
-  driftAmount: 1
+  driftAmount: 1,
+  lipProminence: 1,
+  eyeGlow: 1,
+  rimStrength: 1,
+  interiorDensity: 1,
+  dissolveAmount: 1
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning }) {
   const { N, FEATURE_END, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
@@ -164,6 +169,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     uniforms.glintStrength.value = TUNING.glintStrength;
     gas.applyTuning(TUNING);
     stars.applyTuning(TUNING);
+    applyFaceTuning(TUNING);
   }
   applyTuning();
   if (new URLSearchParams(window.location.search).get('tune') === '1') {
@@ -306,7 +312,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     const widthSlope = slope * camera.aspect * (mode === 'face' ? 0.92 : 0.86);
     const widthGuard = Math.sqrt(1 + 1 / (widthSlope * widthSlope));
 
-    const wantY = mode === 'face' ? 0.12 * Math.sin(clock * 0.4) + mouse.x * 0.22 : 0;
+    const wantY = mode === 'face'
+      ? (shapes.version === 'v2' ? 0 : 0.12 * Math.sin(clock * 0.4)) + mouse.x * 0.22 : 0;
     rotY += (wantY - rotY) * Math.min(1, dt * 2);
     points.rotation.y = rotY;
     points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);

@@ -1,4 +1,9 @@
 const CONTROLS = [
+  ['lipProminence', 'Lip prominence', 0.25, 2, 0.01],
+  ['eyeGlow', 'Eye glow', 0, 2, 0.01],
+  ['rimStrength', 'Rim strength', 0, 2, 0.01],
+  ['interiorDensity', 'Interior density', 0, 1, 0.01],
+  ['dissolveAmount', 'Dissolve amount', 0, 2, 0.01],
   ['trailStrength', 'Trail strength', 0, 0.9, 0.01],
   ['bloomStrength', 'Bloom strength', 0, 2, 0.01],
   ['bloomRadius', 'Bloom radius', 0, 1, 0.01],
