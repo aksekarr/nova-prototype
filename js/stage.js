@@ -22,21 +22,21 @@ const TUNING = {
   dustStrength: 0.72,
   starfieldBrightness: 1,
   glintStrength: 1,
-  faceFrame: 0.44,
+  faceFrame: 0.541,
   shapeFrame: 0.7,
   driftAmount: 1,
-  lipProminence: 1,
+  lipProminence: 0.47,
   eyeGlow: 1,
   rimStrength: 1,
   interiorDensity: 1,
   dissolveAmount: 1,
   definition: 1,
   brightnessFloor: 0.025,
-  faceDensity: 1,
+  faceDensity: 0.88,
   depthAmount: 1.6,
   mouthWarpStrength: 1,
   sparkle: 0.12,
-  messiness: 0.7,
+  messiness: 0.76,
   faceDrift: 1,
   edgeFlowSpeed: 1,
   breath: 1,
@@ -68,7 +68,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   for (let j = 0; j < faceSamples.length; j += 3) {
     legacyFaceFrame = Math.max(legacyFaceFrame, Math.abs(faceSamples[j + 1]) / ((16 - faceSamples[j + 2]) * slope));
   }
-  TUNING.faceFrame = mapFace ? 0.55 : Math.round(legacyFaceFrame * 1000) / 1000;
+  if (!mapFace) TUNING.faceFrame = Math.round(legacyFaceFrame * 1000) / 1000;
   const gas = createGas(scene);
   const stars = createStars(scene);
 
