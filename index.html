@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nova</title>
+<link rel="stylesheet" href="./css/nova.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./js/vendor/three.module.js"
+  }
+}
+</script>
+<script type="module" src="./js/main.js"></script>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Nova, a cloud of light particles"></canvas>
+
+<header class="hud">
+  <p class="mark">NOVA<small>Form study 01</small></p>
+  <dl class="readout">
+    <div><dt>State</dt><dd id="r-state" class="live">Nebula</dd></div>
+    <div><dt>Expression</dt><dd id="r-expr">Neutral</dd></div>
+    <div><dt>Voice</dt><dd id="r-voice">Silent</dd></div>
+    <div><dt>Particles</dt><dd id="r-n">0</dd></div>
+  </dl>
+</header>
+
+<section class="bottom">
+  <p class="caption rest" id="caption" aria-live="polite">At rest. Press Wake Nova to watch it form, speak and change shape.</p>
+  <div class="dock">
+    <button id="wake" class="primary">Wake Nova</button>
+    <div class="group" role="group" aria-label="Shape">
+      <span>Shape</span>
+      <div class="row">
+        <button data-mode="nebula" aria-pressed="true">Nebula</button>
+        <button data-mode="face" aria-pressed="false">Face</button>
+        <button data-mode="tree" aria-pressed="false">Tree</button>
+      </div>
+    </div>
+    <div class="group" role="group" aria-label="Expression">
+      <span>Expression</span>
+      <div class="row">
+        <button data-expr="neutral" aria-pressed="true">Neutral</button>
+        <button data-expr="warm" aria-pressed="false">Warm</button>
+        <button data-expr="curious" aria-pressed="false">Curious</button>
+        <button data-expr="thinking" aria-pressed="false">Thinking</button>
+      </div>
+    </div>
+    <div class="group" role="group" aria-label="Voice">
+      <span>Voice</span>
+      <div class="row">
+        <button id="line">Test line</button>
+        <button id="sound" aria-pressed="true">Sound on</button>
+      </div>
+    </div>
+  </div>
+  <p class="note">Prototype. Placeholder voice: a synthesised babble, not words. No AI connected.</p>
+</section>
+
+</body>
+</html>

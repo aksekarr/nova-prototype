@@ -1,0 +1,100 @@
+@font-face {
+  font-family: 'Chakra Petch';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/chakra-petch-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Chakra Petch';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/chakra-petch-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+}
+
+/* Layout: full-bleed WebGL stage; HUD pinned top, caption + dock stacked at the bottom. Single deliberate dark look (deep space). */
+:root {
+  --void: #04060c;
+  --ink: #dce6f3;
+  --dim: #7d8aa3;
+  --ember: #ffb562;
+  --rule: rgba(220, 230, 243, 0.16);
+  --veil: rgba(4, 6, 12, 0.55);
+  --display: 'Chakra Petch', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--void); color: var(--ink); font-family: var(--mono); overflow: hidden; }
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.hud {
+  position: fixed; left: 0; right: 0;
+  top: env(safe-area-inset-top, 0px);
+  padding: 16px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+  pointer-events: none;
+}
+.mark { font-family: var(--display); font-weight: 600; font-size: 1.1rem; letter-spacing: 0.45em; margin: 0; }
+.mark small { display: block; margin-top: 6px; font-family: var(--mono); font-weight: 400; font-size: 0.66rem; letter-spacing: 0.14em; color: var(--dim); text-transform: uppercase; }
+.readout { display: grid; grid-template-columns: auto auto; gap: 4px 14px; margin: 0; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.readout div { display: contents; }
+.readout dt { color: var(--dim); }
+.readout dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.readout dd.live { color: var(--ember); }
+
+.bottom {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  pointer-events: none;
+}
+.caption {
+  margin: 0; max-width: 38rem; min-height: 3em;
+  text-align: center; font-size: 1rem; line-height: 1.5; text-wrap: balance;
+  color: var(--ink);
+}
+.caption .w { opacity: 0.2; transition: opacity 0.12s linear; }
+.caption .w.on { opacity: 1; }
+.caption.rest { color: var(--dim); font-size: 0.85rem; }
+
+.dock { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 10px 18px; pointer-events: auto; }
+.group { display: flex; flex-direction: column; gap: 6px; }
+.group > span { font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+button {
+  font-family: var(--display); font-weight: 500; font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink); background: var(--veil); border: 1px solid var(--rule); border-radius: 2px;
+  padding: 9px 13px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+button:hover { border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+button[aria-pressed="true"] { background: rgba(220, 230, 243, 0.12); border-color: var(--ink); }
+button.primary { color: var(--ember); border-color: var(--ember); padding: 11px 20px; font-size: 0.8rem; }
+button.primary:hover { background: rgba(255, 181, 98, 0.1); }
+.note { margin: 0; font-size: 0.62rem; letter-spacing: 0.1em; color: var(--dim); text-align: center; }
+
+@media (max-width: 560px) {
+  .dock { gap: 10px; }
+  button { padding: 8px 10px; font-size: 0.66rem; }
+  .caption { font-size: 0.92rem; }
+}
