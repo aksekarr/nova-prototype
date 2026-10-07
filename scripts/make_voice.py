@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 
 
-VOICE_ID = "6rOxfAnZpbM3VIEhFaeV"
+VOICE_ID = "KoVIHoyLDrQyd4pGalbs"
 MODEL_ID = "eleven_v4"
 ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech/{}/with-timestamps".format(VOICE_ID)
 VOICE_DIR = Path(__file__).resolve().parent.parent / "voice"
