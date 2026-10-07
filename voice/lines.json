@@ -1,0 +1,8 @@
+[
+  {"id": "hello", "text": "[warmly] Hello. I'm Nova."},
+  {"id": "intro", "text": "I'm not a person. I'm a voice, and a cloud of light that takes whatever shape helps."},
+  {"id": "trees", "text": "[curious] Say we're talking about trees."},
+  {"id": "tree", "text": "[softly] Roots below. A trunk to carry the weight. A canopy, reaching for the light."},
+  {"id": "back", "text": "[lightly amused] And then I come back to you."},
+  {"id": "test", "text": "[playfully] Watch the mouth. It follows every word I say."}
+]
