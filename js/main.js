@@ -2,17 +2,30 @@ import { createShapes } from './shapes.js';
 import { createFace } from './face.js';
 import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
+import { loadFaceMap } from './facemap.js';
 
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const defaultN = Math.min(window.innerWidth, window.innerHeight) < 600 ? 9000 : 16000;
-const requestedN = new URLSearchParams(window.location.search).get('n');
+const params = new URLSearchParams(window.location.search);
+const requestedN = params.get('n');
 const parsedN = requestedN === null || requestedN.trim() === '' ? NaN : Number(requestedN);
+
+const requestedFace = params.get('face');
+let faceMaps = null;
+if (requestedFace !== 'v1' && requestedFace !== 'v2') {
+  try {
+    faceMaps = await loadFaceMap();
+  } catch (error) {
+    console.warn('Face maps could not be loaded; using face v2.', error);
+  }
+}
+const defaultN = Math.min(window.innerWidth, window.innerHeight) < 600 ? 9000 : faceMaps ? 32000 : 16000;
 const N = Number.isFinite(parsedN) ? Math.max(4000, Math.min(64000, Math.round(parsedN))) : defaultN;
 document.getElementById('r-n').textContent = N.toLocaleString('en-GB');
-
-const designs = createShapes(N);
-const shapes = new URLSearchParams(window.location.search).get('face') === 'v1'
-  ? designs : { ...designs, ...designs.FACE_V2 };
+const designs = createShapes(N, faceMaps);
+const shapes = requestedFace === 'v1' ? designs : {
+  ...designs,
+  ...(faceMaps && designs.FACE_V3 ? designs.FACE_V3 : designs.FACE_V2)
+};
 const face = createFace(shapes, reduce);
 const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral', speaking: false };
 const el = {
@@ -60,9 +73,12 @@ function restCaption(text) {
 
 startStage({
   shapes, reduce, state,
+  speechLab: { play: playLabLine },
   applyFaceTuning: face.applyTuning,
   onFrame: dt => voice.update(dt),
-  updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape())
+  updateFace: (dt, clock) => {
+    face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape());
+  }
 });
 
 // Each new interaction invalidates the pending steps of the scripted sequence.
@@ -77,6 +93,18 @@ async function speakLine(lineId) {
   } finally {
     if (id === speechId) state.speaking = false;
   }
+}
+async function playLabLine(lineId) {
+  stopAll();
+  const id = seqId;
+  if (state.mode !== 'face') {
+    setMode('face');
+    restCaption('Forming…');
+  }
+  const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+  await Promise.all([voice.preload([lineId]), sleep(formationWait)]);
+  if (id !== seqId) return;
+  await speakLine(lineId);
 }
 async function runSequence() {
   const id = ++seqId; function alive() { return id === seqId; }

@@ -115,6 +115,7 @@ button.primary:hover { background: rgba(255, 181, 98, 0.1); }
 .tuning > summary::marker { color: var(--ember); }
 .tuning > summary:focus-visible,
 .tuning input:focus-visible,
+.tuning select:focus-visible,
 .tuning textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
 .tuning-content {
   padding: 0 12px 12px; display: grid; gap: 10px;
@@ -139,6 +140,14 @@ button.primary:hover { background: rgba(255, 181, 98, 0.1); }
 .tuning-footer { display: flex; align-items: center; gap: 10px; }
 .tuning-footer button { padding: 6px 10px; font-size: 0.65rem; }
 .tuning-status { color: var(--dim); font-size: 0.6rem; }
+.speech-lab { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: center; }
+.speech-lab label, .speech-lab .tuning-status { grid-column: 1 / -1; }
+.speech-lab select {
+  min-width: 0; width: 100%; padding: 6px; border: 1px solid var(--rule); border-radius: 2px;
+  background: var(--veil); color: var(--ink); font: 0.6rem var(--mono);
+}
+.speech-lab button { padding: 6px 10px; font-size: 0.65rem; }
+.speech-lab button:disabled, .speech-lab select:disabled { opacity: 0.5; cursor: default; }
 
 @media (max-width: 560px) {
   .tuning { right: 12px; width: 220px; max-width: calc(100vw - 24px); }

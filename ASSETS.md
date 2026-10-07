@@ -6,6 +6,13 @@ File: js/vendor/three.module.js ; js/vendor/THREE-LICENSE.txt ; js/vendor/addons
 Used in: index.html import map; js/stage.js
 Chosen: 2026-10-07
 
+## Nova face source plate
+Asset: Nova face source plate — AI-generated (ChatGPT image generation) by Avi Ravisekara, 2026-10-07; maps derived by Claude via script
+Licence: owned output, labelled AI-generated
+File: assets/face/face-source.png; assets/face/face-colour.png; assets/face/face-mask.png; assets/face/face-depth.png; assets/face/face-landmarks.json
+Used in: js/facemap.js; face v3
+Chosen: 2026-10-07
+
 ## Nova voice
 Asset: Luna, ElevenLabs Voice Library, voice ID 6rOxfAnZpbM3VIEhFaeV, model eleven_v4
 Source: ElevenLabs Voice Library

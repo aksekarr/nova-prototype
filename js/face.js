@@ -1,3 +1,5 @@
+import { createMappedFace } from './facewarp.js';
+
 const EXPR = {
   neutral:  { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1, gx: null, gy: null },
   warm:     { smile: 0.55, browL: 0.08, browR: 0.08, tilt: 0, eye: 0.78, gx: null, gy: null },
@@ -14,7 +16,8 @@ export function createFace(shapes, reduce) {
   const cur = { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1 };
   const gaze = { x: 0, y: 0, tx: 0, ty: 0, next: 2 };
   let blinkAt = 3, blinkV = 1;
-  const lightFace = shapes.version === 'v2' ? createLightFace(shapes, reduce) : null;
+  const lightFace = shapes.version === 'v3' ? createMappedFace(shapes, reduce)
+    : shapes.version === 'v2' ? createLightFace(shapes, reduce) : null;
 
   function update(dt, clock, exprName, envelope, shape) {
     const tgt = EXPR[exprName], k = 1 - Math.pow(0.04, dt);

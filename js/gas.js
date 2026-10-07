@@ -143,6 +143,7 @@ export function createGas(scene) {
   const viewport = new THREE.Vector2(1, 1);
   const formCenter = new THREE.Vector2(0.5, 0.5);
   const formExtent = new THREE.Vector2(0.1, 0.2);
+  const featureClearance = Array.from({ length: 4 }, () => new THREE.Vector4(0.5, 0.5, 0.01, 0.01));
   const layers = [
     { width: 66, height: 50, z: -24, gain: 0.64, order: -30 },
     { width: 46, height: 36, z: -12, gain: 1.0, order: -20 }
@@ -155,6 +156,7 @@ export function createGas(scene) {
       gasMap: { value: target.texture }, gasStrength: { value: 0 },
       viewport: { value: viewport }, formCenter: { value: formCenter },
       formExtent: { value: formExtent }, formMask: { value: 0 },
+      faceWrap: { value: 0 }, featureClearance: { value: featureClearance },
       coreStrength: { value: 1 }, coreAngle: { value: 0 },
       coreScale: { value: 1 }, fieldAspect: { value: layer.width / layer.height }
     };
@@ -179,22 +181,43 @@ export function createGas(scene) {
         uniform vec2 viewport;
         uniform vec2 formCenter;
         uniform vec2 formExtent;
+        uniform float faceWrap;
+        uniform vec4 featureClearance[4];
         varying vec2 gasUV;
         void main() {
-          vec2 form = (gl_FragCoord.xy / viewport - formCenter) / max(formExtent, vec2(0.0001));
+          vec2 screenUV = gl_FragCoord.xy / viewport;
+          vec2 form = (screenUV - formCenter) / max(formExtent, vec2(0.0001));
           float exclusion = 1.0 - formMask * (1.0 - smoothstep(1.0, 1.3, length(form)));
-          vec4 field = texture2D(gasMap, gasUV);
+          if (faceWrap > 0.0) {
+            float features = 0.0;
+            for (int i = 0; i < 4; i++) {
+              vec4 island = featureClearance[i];
+              vec2 feature = (screenUV - island.xy) / max(island.zw, vec2(0.0001));
+              features = max(features, 1.0 - smoothstep(0.5625, 2.25, dot(feature, feature)));
+            }
+            exclusion = mix(exclusion, 1.0 - formMask * features, faceWrap);
+          }
+          // In the portrait, pull the field into the fraying silhouette. The
+          // same cached wisps wrap both sides instead of sitting far offstage.
+          vec2 portraitUV = (screenUV - formCenter) / (formExtent * vec2(2.1, 2.8)) + 0.5;
+          vec2 fieldUV = mix(gasUV, portraitUV, faceWrap);
+          vec4 field = texture2D(gasMap, fieldUV);
+          float portraitEdge = 1.0 - smoothstep(0.72, 1.0, max(abs(fieldUV.x * 2.0 - 1.0), abs(fieldUV.y * 2.0 - 1.0)));
+          vec3 color = field.rgb * mix(1.0, portraitEdge * 0.8, faceWrap);
           // Reconstruct the original two-colour core independently of the
           // atmospheric field, at the angle/scale of this cached layer.
-          vec2 p = (gasUV * 2.0 - 1.0) * vec2(fieldAspect, 1.0) / max(0.2, coreScale);
-          float ca = cos(coreAngle), sa = sin(coreAngle);
-          float safeCos = (ca < 0.0 ? -1.0 : 1.0) * max(0.14, abs(ca));
-          float diskZ = -p.y / (0.7 * 0.522687);
-          vec2 disk = vec2((p.x + diskZ * 0.7 * 0.852525 * sa) / safeCos, diskZ);
-          float edge = 1.0 - smoothstep(0.70, 1.0, max(abs(gasUV.x * 2.0 - 1.0), abs(gasUV.y * 2.0 - 1.0)));
-          float nucleus = exp(-dot(disk, disk) * 180.0) * 0.55 * edge;
-          vec3 core = vec3(0.94, 0.74, 0.49) * field.a + vec3(1.0, 0.94, 0.82) * nucleus;
-          vec3 color = min(field.rgb + core * coreStrength, vec3(1.0));
+          if (coreStrength > 0.0) {
+            vec2 p = (gasUV * 2.0 - 1.0) * vec2(fieldAspect, 1.0) / max(0.2, coreScale);
+            float ca = cos(coreAngle), sa = sin(coreAngle);
+            float safeCos = (ca < 0.0 ? -1.0 : 1.0) * max(0.14, abs(ca));
+            float diskZ = -p.y / (0.7 * 0.522687);
+            vec2 disk = vec2((p.x + diskZ * 0.7 * 0.852525 * sa) / safeCos, diskZ);
+            float edge = 1.0 - smoothstep(0.70, 1.0, max(abs(gasUV.x * 2.0 - 1.0), abs(gasUV.y * 2.0 - 1.0)));
+            float nucleus = exp(-dot(disk, disk) * 180.0) * 0.55 * edge;
+            vec3 core = vec3(0.94, 0.74, 0.49) * field.a + vec3(1.0, 0.94, 0.82) * nucleus;
+            color += core * coreStrength;
+          }
+          color = min(color, vec3(1.0));
           gl_FragColor = vec4(color * gasStrength * exclusion, 1.0);
         }
       `
@@ -219,16 +242,18 @@ export function createGas(scene) {
       fieldUniforms.dustStrength.value = tuning.dustStrength;
       dirty = true;
     },
-    update(dt, clock, nebulaAngle, gasStrength, formMask, coreStrength, clearCenter, clearExtent) {
+    update(dt, clock, nebulaAngle, gasStrength, formMask, coreStrength, clearCenter, clearExtent, faceWrap = 0, clearFeatures = null) {
       elapsed += dt;
       fieldUniforms.fieldTime.value = clock;
       fieldUniforms.nebulaAngle.value = nebulaAngle;
       formCenter.copy(clearCenter);
       formExtent.copy(clearExtent);
+      if (clearFeatures) for (let i = 0; i < 4; i++) featureClearance[i].copy(clearFeatures[i]);
       for (const layer of layers) {
         layer.uniforms.gasStrength.value = intensity * gasStrength * layer.gain;
         layer.uniforms.formMask.value = formMask;
         layer.uniforms.coreStrength.value = coreStrength;
+        layer.uniforms.faceWrap.value = faceWrap;
       }
     },
     render(renderer) {

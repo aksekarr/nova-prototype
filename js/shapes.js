@@ -1,3 +1,6 @@
+import { sampleScalar, sampleRGB } from './facesample.js';
+import { faceField, protectionWeight } from './facefield.js';
+
 // A private generator keeps shape construction deterministic and self-contained.
 function rngFrom(seed) {
   return function () {
@@ -9,7 +12,7 @@ function rngFrom(seed) {
   };
 }
 
-export function createShapes(N) {
+export function createShapes(N, maps = null) {
   const R = rngFrom(7);
   function gauss() {
     let u = 0;
@@ -394,7 +397,188 @@ export function createShapes(N) {
   // A separate design consumes randomness only after every pre-existing draw.
   // Nothing above, including the v1 face, nebula, tree or their colours, changes.
   const FACE_V2 = createLightFace(N, R, gauss);
-  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, FACE_COL, NEB, NEB_COL, TREE, TREE_COL, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ, FACE_V2 };
+  const FACE_V3 = maps ? createMapFace(N, maps) : null;
+  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, FACE_COL, NEB, NEB_COL, TREE, TREE_COL, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ, FACE_V2, FACE_V3 };
+}
+
+// A jittered population keeps continuous facial coverage while broad noise and
+// image light collect stars into irregular patches. Features still come only
+// from image sampling; protected regions retain enough points to animate cleanly.
+function createMapFace(N, maps) {
+  const R = rngFrom(3307), count = Math.round(N * 0.75), MAP_SCALE = 7.2;
+  const filamentEnd = count + Math.round((N - count) * 0.9);
+  const I = { face: [0, count], filaments: [count, filamentEnd], halo: [count, N] };
+  const FACE = new Float32Array(N * 3), FACE_COL = new Float32Array(N * 3);
+  const UV = new Float32Array(N * 2), MAP_DEPTH = new Float32Array(N);
+  const DENSITY_RANDOM = new Float32Array(N), SPARK_RANDOM = new Float32Array(N);
+  const STAR_SIZE = new Float32Array(N), STAR_TINT = new Float32Array(N * 3);
+  const FIELD = new Float32Array(N), PROTECT = new Float32Array(N);
+  const P1 = new Float32Array(N), P2 = new Float32Array(N);
+  const P3 = new Float32Array(N), P4 = new Float32Array(N);
+  const colourWork = new Float32Array(3), rootColour = new Float32Array(3);
+  function densityAt(u, v, field, protect) {
+    sampleRGB(maps.colour, u, v, colourWork);
+    const luminance = colourWork[0] * 0.2126 + colourWork[1] * 0.7152 + colourWork[2] * 0.0722;
+    const uneven = 0.36 + field * 0.46 + Math.sqrt(luminance) * 0.18;
+    return sampleScalar(maps.mask, u, v) * Math.max(uneven, protect * 0.95);
+  }
+  function star(i, warmth = 0.5) {
+    const j = i * 3, size = R(), tint = R();
+    STAR_SIZE[i] = size < 0.006 ? 3 + R() * 3
+      : size < 0.13 ? 1 + R() : 0.35 + R() * 0.5;
+    let red, green, blue;
+    if (tint < 0.13 + warmth * 0.19) {
+      red = 1; green = 0.45 + R() * 0.27; blue = 0.20 + R() * 0.18;
+    } else if (tint < 0.58) {
+      red = 1; green = 0.9 + R() * 0.1; blue = 0.84 + R() * 0.16;
+    } else if (tint < 0.90) {
+      red = 0.48 + R() * 0.20; green = 0.74 + R() * 0.16; blue = 1;
+    } else {
+      red = 0.64 + R() * 0.20; green = 0.33 + R() * 0.18; blue = 1;
+    }
+    STAR_TINT[j] = red; STAR_TINT[j + 1] = green; STAR_TINT[j + 2] = blue;
+    DENSITY_RANDOM[i] = R(); SPARK_RANDOM[i] = R();
+  }
+  let coverage = 0;
+  for (let y = 0; y < 96; y++) {
+    for (let x = 0; x < 96; x++) {
+      const u = (x + 0.5) / 96, v = (y + 0.5) / 96;
+      coverage += densityAt(u, v, faceField(u, v), protectionWeight(u, v, maps.landmarks));
+    }
+  }
+  coverage /= 96 * 96;
+  if (!(coverage > 0)) throw new Error('Cannot place a face on an empty mask');
+  let cells = Math.ceil(Math.sqrt(count / coverage * 1.04)), candidates;
+  do {
+    candidates = [];
+    for (let y = 0; y < cells; y++) {
+      for (let x = 0; x < cells; x++) {
+        const u = (x + 0.08 + R() * 0.84) / cells;
+        const v = (y + 0.08 + R() * 0.84) / cells;
+        const field = faceField(u, v), protect = protectionWeight(u, v, maps.landmarks);
+        const density = densityAt(u, v, field, protect);
+        if (density > 0.0001) candidates.push({ u, v, field, protect, priority: R() / density });
+      }
+    }
+    if (candidates.length < count) cells = Math.ceil(cells * 1.15);
+  } while (candidates.length < count);
+  // A common threshold retains exact count and soft mask thinning. Even the
+  // darkest noise trough has substantial occupancy, so there are no large holes.
+  candidates.sort((a, b) => a.priority - b.priority);
+  candidates.length = count;
+  // Random membership avoids scan-order formation bands and keeps live density
+  // and sparkle controls spatially even without changing the sampled plate.
+  for (let i = count - 1; i > 0; i--) {
+    const k = Math.floor(R() * (i + 1)), temp = candidates[i];
+    candidates[i] = candidates[k]; candidates[k] = temp;
+  }
+  for (let i = 0; i < count; i++) {
+    const { u, v, field, protect } = candidates[i], j = i * 3;
+    UV[i * 2] = u; UV[i * 2 + 1] = v;
+    FIELD[i] = field; PROTECT[i] = protect;
+    MAP_DEPTH[i] = sampleScalar(maps.depth, u, v);
+    FACE[j] = (u - 0.5) * MAP_SCALE;
+    FACE[j + 1] = (0.5 - v) * MAP_SCALE;
+    FACE[j + 2] = (MAP_DEPTH[i] - 0.5) * 1.6;
+    sampleRGB(maps.colour, u, v, FACE_COL, j);
+    star(i, FACE_COL[j] / Math.max(0.001, FACE_COL[j] + FACE_COL[j + 2]));
+    P1[i] = R() * Math.PI * 2;
+  }
+
+  // Find actual map coverage crossings, then start just inside them. Separate
+  // top, jaw and side roots prevent a formulaic oval or a contour-following rim.
+  function findRoot(kind, side) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const fixed = kind === 0 ? 0.25 + R() * 0.50
+        : kind === 1 ? 0.13 + R() * 0.74 : 0.12 + R() * 0.69;
+      for (let step = 0; step < 256; step++) {
+        const along = (step + 0.5) / 256;
+        let u = fixed, v = kind === 0 ? 1 - along : along;
+        if (kind === 2) { u = side < 0 ? along : 1 - along; v = fixed; }
+        if (sampleScalar(maps.mask, u, v) >= 0.30) {
+          const inward = 0.005 + R() * 0.035;
+          if (kind === 0) v -= inward;
+          else if (kind === 1) v += inward;
+          else u -= side * inward;
+          return { u, v };
+        }
+      }
+    }
+    return { u: 0.5, v: kind === 0 ? 0.87 : 0.10 };
+  }
+  const strands = Math.max(42, Math.round(Math.sqrt(N) * 0.72));
+  let cursor = count;
+  for (let strand = 0; strand < strands; strand++) {
+    const amount = Math.round((filamentEnd - cursor) / (strands - strand));
+    const region = R(), kind = region < 0.42 ? 0 : region < 0.67 ? 1 : 2;
+    const side = R() < 0.5 ? -1 : 1, root = findRoot(kind, side);
+    const rx = (root.u - 0.5) * MAP_SCALE, ry = (0.5 - root.v) * MAP_SCALE;
+    const rz = (sampleScalar(maps.depth, root.u, root.v) - 0.5) * 1.6;
+    sampleRGB(maps.colour, root.u, root.v, rootColour);
+    const peak = Math.max(rootColour[0], rootColour[1], rootColour[2], 0.05);
+    const warmth = rootColour[0] / Math.max(0.001, rootColour[0] + rootColour[2]);
+    let ox = kind === 2 ? side : (root.u - 0.5) * (kind === 0 ? 1.4 : 0.9);
+    let oy = kind === 0 ? -1 : kind === 1 ? 1 : (0.48 - root.v) * 0.55;
+    const magnitude = Math.hypot(ox, oy); ox /= magnitude; oy /= magnitude;
+    const length = kind === 0 ? 1.2 + Math.pow(R(), 0.7) * 3.7
+      : kind === 1 ? 0.9 + R() * 2.6 : 0.7 + R() * 2.1;
+    const curl = (R() < 0.5 ? -1 : 1) * (0.34 + R() * 0.66) * length;
+    const phase = R() * Math.PI * 2, frequency = 0.75 + R() * 1.2;
+    const speed = 0.05 + R() * 0.06, depthCurl = (R() - 0.5) * 0.8;
+    for (let k = 0; k < amount; k++, cursor++) {
+      const i = cursor, j = i * 3;
+      // Random samples taper toward each tip without making an evenly spaced
+      // dotted hair. Many broad overlapping sprays fray the edge into wisps.
+      const t = Math.pow(R(), 1.38);
+      const radial = length * (t * 0.68 + t * t * 0.32);
+      const bend = curl * t * (Math.sin(phase + t * Math.PI * frequency) - Math.sin(phase)) * 0.60;
+      const spread = 0.05 + length * 0.009
+        + Math.pow(t, 0.85) * (0.12 + length * 0.028) + t * t * 0.16;
+      const across = (R() + R() - 1) * spread;
+      const along = (R() - 0.5) * spread;
+      FACE[j] = rx + ox * (radial + along) - oy * (bend + across);
+      FACE[j + 1] = ry + oy * (radial + along) + ox * (bend + across);
+      FACE[j + 2] = rz - t * 0.45 + depthCurl * Math.sin(t * Math.PI)
+        + (R() - 0.5) * spread * 1.6;
+      UV[i * 2] = root.u; UV[i * 2 + 1] = root.v;
+      FIELD[i] = faceField(root.u + t * ox * 0.18, root.v - t * oy * 0.18);
+      star(i, warmth);
+      const rootMix = 0.38 * (1 - t);
+      const cluster = 0.32 + 0.68 * Math.pow(0.5 + 0.5 * Math.sin(t * 9 + phase), 1.3);
+      const light = (0.16 + peak * 0.50 + R() * 0.22) * 1.8 * (1 - t * 0.66)
+        * (0.66 + FIELD[i] * 0.55) * cluster;
+      for (let c = 0; c < 3; c++) {
+        const tint = STAR_TINT[j + c] * (1 - rootMix) + rootColour[c] / peak * rootMix;
+        FACE_COL[j + c] = tint * light;
+      }
+      P1[i] = phase;
+      P2[i] = 0.012 + t * t * (0.10 + length * 0.023);
+      P3[i] = speed;
+      P4[i] = t;
+    }
+  }
+  for (let i = filamentEnd; i < N; i++) {
+    const j = i * 3, escape = R();
+    FACE[j] = (R() + R() - 1) * 6.1;
+    FACE[j + 1] = (R() + R() - 1) * 7.7;
+    FACE[j + 2] = -0.35 - R() * 2.7;
+    FIELD[i] = R(); star(i);
+    const light = (0.09 + R() * 0.22) * (1 - escape * 0.42);
+    FACE_COL[j] = STAR_TINT[j] * light;
+    FACE_COL[j + 1] = STAR_TINT[j + 1] * light;
+    FACE_COL[j + 2] = STAR_TINT[j + 2] * light;
+    P1[i] = R() * Math.PI * 2;
+    P2[i] = 0.05 + escape * 0.14;
+    P3[i] = 0.05 + R() * 0.09;
+    P4[i] = escape;
+  }
+  const BASE = new Float32Array(FACE), BASE_COL = new Float32Array(FACE_COL);
+  return {
+    version: 'v3', I, FEATURE_END: count, FACE_COUNT: count, FACE, BASE, FACE_COL,
+    BASE_COL, UV, MAP_DEPTH, DENSITY_RANDOM, SPARK_RANDOM, STAR_SIZE, STAR_TINT,
+    FIELD, PROTECT, P1, P2, P3, P4,
+    MAPS: maps, MAP_SCALE
+  };
 }
 
 // Light suggests the surface: an open rim, cheek sweeps and a few contour dots.
