@@ -3,6 +3,9 @@ const CONTROLS = [
   ['brightnessFloor', 'Brightness floor', 0, 0.35, 0.005],
   ['faceDensity', 'Face density', 0.25, 1, 0.01],
   ['messiness', 'Messiness', 0, 1, 0.01],
+  ['faceDrift', 'Drift amount', 0, 2, 0.01],
+  ['edgeFlowSpeed', 'Edge flow speed', 0, 2, 0.01],
+  ['breath', 'Breath', 0, 2, 0.01],
   ['filamentAmount', 'Filament amount', 0, 2, 0.01],
   ['starSizeSpread', 'Star size spread', 0, 2, 0.01],
   ['gasWrap', 'Gas wrap', 0, 2, 0.01],
@@ -31,7 +34,7 @@ const CONTROLS = [
   ['shapeFrame', 'Shape frame', 0.35, 0.85, 0.01],
   ['driftAmount', 'Drift amount', 0, 2, 0.01],
 ];
-const MAP_CONTROLS = new Set(['definition', 'brightnessFloor', 'faceDensity', 'messiness', 'filamentAmount', 'starSizeSpread', 'gasWrap', 'depthAmount', 'mouthWarpStrength', 'sparkle']);
+const MAP_CONTROLS = new Set(['definition', 'brightnessFloor', 'faceDensity', 'messiness', 'faceDrift', 'edgeFlowSpeed', 'breath', 'filamentAmount', 'starSizeSpread', 'gasWrap', 'depthAmount', 'mouthWarpStrength', 'sparkle']);
 const LEGACY_CONTROLS = new Set(['rimStrength', 'interiorDensity']);
 
 export function createTuningPanel(tuning, onChange, speechLab, faceVersion = 'v2') {
@@ -65,7 +68,7 @@ export function createTuningPanel(tuning, onChange, speechLab, faceVersion = 'v2
     const label = document.createElement('label');
     label.className = 'tuning-control';
     const name = document.createElement('span');
-    name.textContent = labelText;
+    name.textContent = faceVersion === 'v3' && key === 'driftAmount' ? 'Nebula drift' : labelText;
     const value = document.createElement('output');
     const input = document.createElement('input');
     input.type = 'range';

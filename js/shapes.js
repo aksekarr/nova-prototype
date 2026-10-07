@@ -507,6 +507,10 @@ function createMapFace(N, maps) {
     return { u: 0.5, v: kind === 0 ? 0.87 : 0.10 };
   }
   const strands = Math.max(42, Math.round(Math.sqrt(N) * 0.72));
+  const FLOW_STEPS = 64;
+  const FLOW_PATHS = new Float32Array(strands * 3 * (FLOW_STEPS + 1) * 4);
+  const FLOW_IDS = new Uint16Array(N), FLOW_PHASE = new Float32Array(N);
+  const FLOW_RATE = new Float32Array(N), FLOW_OFFSET = new Float32Array(N * 3);
   let cursor = count;
   for (let strand = 0; strand < strands; strand++) {
     const amount = Math.round((filamentEnd - cursor) / (strands - strand));
@@ -520,33 +524,51 @@ function createMapFace(N, maps) {
     let ox = kind === 2 ? side : (root.u - 0.5) * (kind === 0 ? 1.4 : 0.9);
     let oy = kind === 0 ? -1 : kind === 1 ? 1 : (0.48 - root.v) * 0.55;
     const magnitude = Math.hypot(ox, oy); ox /= magnitude; oy /= magnitude;
-    const length = kind === 0 ? 1.2 + Math.pow(R(), 0.7) * 3.7
-      : kind === 1 ? 0.9 + R() * 2.6 : 0.7 + R() * 2.1;
+    const length = kind === 0 ? 1.8 + Math.pow(R(), 0.7) * 4.4
+      : kind === 1 ? 1.3 + R() * 3.5 : 1.0 + R() * 2.8;
     const curl = (R() < 0.5 ? -1 : 1) * (0.34 + R() * 0.66) * length;
     const phase = R() * Math.PI * 2, frequency = 0.75 + R() * 1.2;
-    const speed = 0.05 + R() * 0.06, depthCurl = (R() - 0.5) * 0.8;
+    const speed = 0.014 + R() * 0.012, depthCurl = (R() - 0.5) * 0.8;
+    const fork = 0.19 + R() * 0.19;
+    // Three precomputed daughter paths share a broad root, then separate into
+    // finer curls. Animation only interpolates these tables: no per-star noise.
+    for (let branch = 0; branch < 3; branch++) {
+      const branchSide = branch - 1, pathStart = (strand * 3 + branch) * (FLOW_STEPS + 1) * 4;
+      for (let step = 0; step <= FLOW_STEPS; step++) {
+        const t = step / FLOW_STEPS, q = Math.max(0, (t - 0.44) / 0.56);
+        const split = q * q * (3 - 2 * q);
+        const radial = length * (t * 0.62 + t * t * 0.38);
+        const bend = curl * t * (Math.sin(phase + t * Math.PI * frequency) - Math.sin(phase)) * 0.62
+          + branchSide * length * fork * split * (0.76 + 0.24 * Math.sin(t * 4.5 + phase));
+        const p = pathStart + step * 4;
+        FLOW_PATHS[p] = rx + ox * radial - oy * bend;
+        FLOW_PATHS[p + 1] = ry + oy * radial + ox * bend;
+        FLOW_PATHS[p + 2] = rz - t * 0.6 + depthCurl * Math.sin(t * Math.PI)
+          + branchSide * split * 0.19;
+        FLOW_PATHS[p + 3] = (0.065 + Math.sin(t * Math.PI) * 0.10) * (1 - split * 0.70);
+      }
+    }
     for (let k = 0; k < amount; k++, cursor++) {
       const i = cursor, j = i * 3;
-      // Random samples taper toward each tip without making an evenly spaced
-      // dotted hair. Many broad overlapping sprays fray the edge into wisps.
-      const t = Math.pow(R(), 1.38);
-      const radial = length * (t * 0.68 + t * t * 0.32);
-      const bend = curl * t * (Math.sin(phase + t * Math.PI * frequency) - Math.sin(phase)) * 0.60;
-      const spread = 0.05 + length * 0.009
-        + Math.pow(t, 0.85) * (0.12 + length * 0.028) + t * t * 0.16;
-      const across = (R() + R() - 1) * spread;
-      const along = (R() - 0.5) * spread;
-      FACE[j] = rx + ox * (radial + along) - oy * (bend + across);
-      FACE[j + 1] = ry + oy * (radial + along) + ox * (bend + across);
-      FACE[j + 2] = rz - t * 0.45 + depthCurl * Math.sin(t * Math.PI)
-        + (R() - 0.5) * spread * 1.6;
+      const flowPhase = R(), t = flowPhase * (0.65 + flowPhase * 0.35);
+      const path = strand * 3 + Math.floor(R() * 3);
+      FLOW_IDS[i] = path; FLOW_PHASE[i] = flowPhase; FLOW_RATE[i] = speed;
+      const across = R() + R() - 1, along = (R() - 0.5) * 0.65;
+      FLOW_OFFSET[j] = ox * along - oy * across;
+      FLOW_OFFSET[j + 1] = oy * along + ox * across;
+      FLOW_OFFSET[j + 2] = (R() - 0.5) * 1.5;
+      const sample = t * FLOW_STEPS, lower = Math.min(FLOW_STEPS - 1, Math.floor(sample));
+      const blend = sample - lower, p = (path * (FLOW_STEPS + 1) + lower) * 4;
+      const spread = FLOW_PATHS[p + 3] + (FLOW_PATHS[p + 7] - FLOW_PATHS[p + 3]) * blend;
+      for (let c = 0; c < 3; c++) {
+        FACE[j + c] = FLOW_PATHS[p + c] + (FLOW_PATHS[p + c + 4] - FLOW_PATHS[p + c]) * blend
+          + FLOW_OFFSET[j + c] * spread;
+      }
       UV[i * 2] = root.u; UV[i * 2 + 1] = root.v;
       FIELD[i] = faceField(root.u + t * ox * 0.18, root.v - t * oy * 0.18);
       star(i, warmth);
-      const rootMix = 0.38 * (1 - t);
-      const cluster = 0.32 + 0.68 * Math.pow(0.5 + 0.5 * Math.sin(t * 9 + phase), 1.3);
-      const light = (0.16 + peak * 0.50 + R() * 0.22) * 1.8 * (1 - t * 0.66)
-        * (0.66 + FIELD[i] * 0.55) * cluster;
+      const rootMix = 0.28;
+      const light = (0.16 + peak * 0.50 + R() * 0.22) * 2.88 * (0.66 + FIELD[i] * 0.55);
       for (let c = 0; c < 3; c++) {
         const tint = STAR_TINT[j + c] * (1 - rootMix) + rootColour[c] / peak * rootMix;
         FACE_COL[j + c] = tint * light;
@@ -571,12 +593,87 @@ function createMapFace(N, maps) {
     P2[i] = 0.05 + escape * 0.14;
     P3[i] = 0.05 + R() * 0.09;
     P4[i] = escape;
+    FLOW_PHASE[i] = R(); FLOW_RATE[i] = 0.010 + R() * 0.010;
+    const radius = Math.hypot(FACE[j], FACE[j + 1]) || 1;
+    FLOW_OFFSET[j] = FACE[j] / radius * (0.35 + escape * 0.65);
+    FLOW_OFFSET[j + 1] = FACE[j + 1] / radius * (0.35 + escape * 0.65);
+    FLOW_OFFSET[j + 2] = (R() - 0.5) * 0.5;
+  }
+  // A handful of additional beacons live away from eyes and lips. This does
+  // not change particle count or the size attributes used by other forms.
+  const extraStars = Math.max(2, Math.round(N * 0.0005));
+  for (let n = 0; n < extraStars; n++) {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const i = Math.floor(R() * N);
+      if (PROTECT[i] > 0.08 || STAR_SIZE[i] >= 3) continue;
+      STAR_SIZE[i] = 5.1 + R() * 0.9;
+      break;
+    }
   }
   const BASE = new Float32Array(FACE), BASE_COL = new Float32Array(FACE_COL);
+  const CORE_LOOP = new Float32Array(count * 6), CORE_GROUP = new Uint8Array(count);
+  const CORE_EDGE = new Float32Array(count), detached = [], departures = [];
+  const edgeStars = [], edgePaths = [];
+  for (let i = 0; i < count; i++) {
+    const u = UV[i * 2], v = UV[i * 2 + 1], k = i * 6;
+    const left = sampleScalar(maps.mask, u - 0.018, v), right = sampleScalar(maps.mask, u + 0.018, v);
+    const top = sampleScalar(maps.mask, u, v - 0.018), bottom = sampleScalar(maps.mask, u, v + 0.018);
+    const edge = 1 - Math.min(left, right, top, bottom), free = 1 - PROTECT[i];
+    CORE_EDGE[i] = edge;
+    const amplitude = 0.0008 + free * free * (0.004 + FIELD[i] * 0.005 + edge * 0.022);
+    const phase = R() * Math.PI * 2, angle = R() * Math.PI * 2;
+    const a = amplitude, b = amplitude * (0.38 + R() * 0.38);
+    const cp = Math.cos(phase), sp = Math.sin(phase), ca = Math.cos(angle), sa = Math.sin(angle);
+    CORE_LOOP[k] = a * ca * cp - b * sa * sp;
+    CORE_LOOP[k + 1] = a * ca * sp + b * sa * cp;
+    CORE_LOOP[k + 2] = a * sa * cp + b * ca * sp;
+    CORE_LOOP[k + 3] = a * sa * sp - b * ca * cp;
+    CORE_LOOP[k + 4] = amplitude * 0.26 * cp;
+    CORE_LOOP[k + 5] = amplitude * 0.26 * sp;
+    CORE_GROUP[i] = Math.floor(R() * 32);
+    const flowingEdge = edge > 0.32 && PROTECT[i] < 0.10 && R() < 0.62;
+    // A subset of mask-edge stars travels along short outgoing curls. Their
+    // home UV never moves; fade at each end hides the return to the same root.
+    if (flowingEdge) {
+      let nx = left - right, ny = bottom - top;
+      if (Math.hypot(nx, ny) < 0.001) { nx = u - 0.5; ny = 0.5 - v; }
+      const length = Math.hypot(nx, ny) || 1;
+      nx /= length; ny /= length;
+      const distance = 0.16 + edge * 0.42 + R() * 0.12;
+      const curl = (R() - 0.5) * 0.35;
+      edgeStars.push(i);
+      edgePaths.push(nx * distance, ny * distance, -ny * curl, nx * curl, (R() - 0.6) * 0.18);
+      FLOW_PHASE[i] = R(); FLOW_RATE[i] = 1 / (24 + R() * 18);
+    // Only a few other unprotected edge stars ever depart and return visibly.
+    } else if (edge > 0.12 && PROTECT[i] < 0.08 && R() < 0.016) {
+      let nx = left - right, ny = bottom - top;
+      const length = Math.hypot(nx, ny) || 1;
+      nx /= length; ny /= length;
+      const distance = 0.35 + R() * 0.85;
+      detached.push(i);
+      departures.push(R(), 1 / (72 + R() * 75), nx * distance, ny * distance, (R() - 0.5) * 0.5);
+    }
+  }
+  // Paired departures overlap by half their active arc: one star moves out
+  // while its partner is already returning. They share a slow period, so the
+  // exchange stays continuous without spawning or removing a particle.
+  if (detached.length % 2) { detached.pop(); departures.length -= 5; }
+  for (let pair = 0; pair < detached.length; pair += 2) {
+    const a = pair * 5, b = (pair + 1) * 5;
+    departures[b] = (departures[a] + 0.09) % 1;
+    departures[b + 1] = departures[a + 1];
+  }
+  const RECYCLED = new Uint8Array(N);
+  const MOTION = {
+    CORE_LOOP, CORE_GROUP, CORE_EDGE, DETACH_INDEX: new Uint32Array(detached),
+    DETACH_DATA: new Float32Array(departures), EDGE_INDEX: new Uint32Array(edgeStars),
+    EDGE_DATA: new Float32Array(edgePaths), FLOW_STEPS, FLOW_PATHS,
+    FLOW_IDS, FLOW_PHASE, FLOW_RATE, FLOW_OFFSET
+  };
   return {
     version: 'v3', I, FEATURE_END: count, FACE_COUNT: count, FACE, BASE, FACE_COL,
     BASE_COL, UV, MAP_DEPTH, DENSITY_RANDOM, SPARK_RANDOM, STAR_SIZE, STAR_TINT,
-    FIELD, PROTECT, P1, P2, P3, P4,
+    FIELD, PROTECT, P1, P2, P3, P4, MOTION, RECYCLED,
     MAPS: maps, MAP_SCALE
   };
 }

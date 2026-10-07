@@ -1,4 +1,5 @@
 import { createMappedFace } from './facewarp.js';
+import { createFaceMotion } from './facemotion.js';
 
 const EXPR = {
   neutral:  { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1, gx: null, gy: null },
@@ -18,6 +19,7 @@ export function createFace(shapes, reduce) {
   let blinkAt = 3, blinkV = 1;
   const lightFace = shapes.version === 'v3' ? createMappedFace(shapes, reduce)
     : shapes.version === 'v2' ? createLightFace(shapes, reduce) : null;
+  const motion = shapes.version === 'v3' ? createFaceMotion(shapes, reduce) : null;
 
   function update(dt, clock, exprName, envelope, shape) {
     const tgt = EXPR[exprName], k = 1 - Math.pow(0.04, dt);
@@ -49,6 +51,7 @@ export function createFace(shapes, reduce) {
 
     if (lightFace) {
       lightFace.update(clock, cur, gaze, blinkV, envelope, shape);
+      if (motion) motion.update(clock);
       return;
     }
     const open = cur.eye * blinkV;
@@ -97,7 +100,10 @@ export function createFace(shapes, reduce) {
     }
   }
 
-  return { update, applyTuning: lightFace ? lightFace.applyTuning : () => {} };
+  return { update, applyTuning(tuning) {
+    if (lightFace) lightFace.applyTuning(tuning);
+    if (motion) motion.applyTuning(tuning);
+  } };
 }
 
 // The light face shares the original expression, gaze, blink and voice clocks.

@@ -30,11 +30,11 @@ export function inverseMouthX(offset, width, half, outer) {
   return Math.sign(offset) * source;
 }
 
-// Only image coordinates and local depth change. Every face particle keeps
-// its jittered-grid x/y position, including on the lids and the parted lips.
+// This sampler changes image coordinates and local depth only. The motion
+// module can move world positions without changing immutable home-UV sampling.
 export function createMappedFace(shapes, reduce) {
-  const { I, FACE, BASE, FACE_COL, BASE_COL, UV, MAP_DEPTH, DENSITY_RANDOM,
-    SPARK_RANDOM, P1, P2, P3, P4, MAPS, MAP_SCALE, STAR_TINT, STAR_SIZE,
+  const { I, FACE, FACE_COL, UV, MAP_DEPTH, DENSITY_RANDOM,
+    SPARK_RANDOM, P1, MAPS, MAP_SCALE, STAR_TINT, STAR_SIZE,
     FIELD, PROTECT } = shapes;
   const landmarks = MAPS.landmarks, colour = MAPS.colour;
   const count = I.face[1], weights = new Float32Array(count * 8);
@@ -57,7 +57,12 @@ export function createMappedFace(shapes, reduce) {
   const averagePeak = Math.max(...average, 0.001);
   const floorTint = average.map(value => 0.45 + value / averagePeak * 0.55);
   const starGain = new Float32Array(count), tintMix = new Float32Array(count);
+  const protectedGain = new Float64Array(count), protectedTintMix = new Float64Array(count);
   const breathSin = new Float32Array(count), breathCos = new Float32Array(count);
+  const irisLight = new Float32Array(count * 3), noseLight = new Float32Array(count);
+  const eyeMembers = [[], []];
+  const noseU = (landmarks.noseBridge[0] + landmarks.noseTip[0]) * 0.5;
+  const noseV = (landmarks.noseBridge[1] + landmarks.noseTip[1]) * 0.5;
 
   // Follow the photograph's actual dark seam inside the landmark corridor.
   // Expanding this sampled strip makes a mouth cavity without drawing a line
@@ -93,10 +98,17 @@ export function createMappedFace(shapes, reduce) {
     // stars coloured instead of multiplying their size by a second HDR boost.
     starGain[i] = (0.68 + SPARK_RANDOM[i] * 0.7) / (1 + Math.max(0, starSize - 1) * 0.14);
     tintMix[i] = 0.48 + DENSITY_RANDOM[i] * 0.28;
+    if (PROTECT) {
+      protectedGain[i] = 1 + (starGain[i] - 1) * (1 - PROTECT[i] * 0.88);
+      protectedTintMix[i] = tintMix[i] * (1 - PROTECT[i] * 0.86);
+    }
     const phase = u * 8.1 + v * 5.3 + (FIELD ? FIELD[i] * 2.5 : 0);
     breathSin[i] = Math.sin(phase); breathCos[i] = Math.cos(phase);
+    const nx = (u - noseU) / 0.055, ny = (v - noseV) / 0.16;
+    noseLight[i] = Math.max(0, 1 - nx * nx - ny * ny);
     for (let side = 0; side < 2; side++) {
       const eye = eyes[side], brow = brows[side];
+      if (Math.abs(u - eye[0]) < 0.044 && Math.abs(v - eye[1]) < 0.058) eyeMembers[side].push(i);
       weights[k + 2 + side] = falloff(u - eye[0], 0.035, 0.102)
         * falloff(v - eye[1], 0.032, 0.082);
       const ix = (u - eye[0]) / 0.055, iy = (v - eye[1]) / 0.032;
@@ -105,11 +117,12 @@ export function createMappedFace(shapes, reduce) {
         * falloff(v - brow[1], 0.025, 0.092);
     }
   }
+  const eyeParticles = eyeMembers.map(indices => Int32Array.from(indices));
 
   let definition = 1, brightnessFloor = 0.025, faceDensity = 1;
   let depthAmount = 1.6, mouthWarpStrength = 1, sparkle = 0.15;
-  let eyeGlow = 1, lipProminence = 1, dissolveAmount = 1;
-  let messiness = 0.7, filamentAmount = 1;
+  let eyeGlow = 1, lipProminence = 1;
+  let messiness = 0.7, breathAmount = 1;
   function applyTuning(tuning) {
     definition = tuning.definition ?? definition;
     brightnessFloor = tuning.brightnessFloor ?? brightnessFloor;
@@ -119,9 +132,8 @@ export function createMappedFace(shapes, reduce) {
     sparkle = tuning.sparkle ?? sparkle;
     eyeGlow = tuning.eyeGlow ?? eyeGlow;
     lipProminence = tuning.lipProminence ?? lipProminence;
-    dissolveAmount = tuning.dissolveAmount ?? dissolveAmount;
     messiness = tuning.messiness ?? messiness;
-    filamentAmount = tuning.filamentAmount ?? filamentAmount;
+    breathAmount = Math.max(0, tuning.breath ?? breathAmount);
   }
 
   function updateWarp(expression, gaze, blink, envelope, shape) {
@@ -216,6 +228,7 @@ export function createMappedFace(shapes, reduce) {
     const contrast = clamp(definition, 0, 1);
     const floor = clamp(brightnessFloor, 0, 0.35);
     const breathSine = Math.sin(clock * 0.19), breathCosine = Math.cos(clock * 0.19);
+    const colourBreath = reduce ? 0 : breathAmount;
     for (let i = 0; i < count; i++) {
       const j = i * 3, f = i * 5;
       const eyeGain = featureLight[f], eyeFocus = featureLight[f + 1];
@@ -232,7 +245,14 @@ export function createMappedFace(shapes, reduce) {
       const luma = r * 0.25 + g * 0.5 + b * 0.25;
       const field = FIELD ? FIELD[i] : 0.5;
       const protect = PROTECT ? PROTECT[i] : Math.min(1, lipFocus + eyeFocus);
-      const breath = breathSin[i] * breathCosine + breathCos[i] * breathSine;
+      // Features retain the source plate's detail while the surrounding field
+      // keeps its broad palette and brightness variation.
+      let featureGain = protectedGain[i], paletteMix = protectedTintMix[i];
+      if (!PROTECT) {
+        featureGain = 1 + (starGain[i] - 1) * (1 - protect * 0.88);
+        paletteMix = tintMix[i] * (1 - protect * 0.86);
+      }
+      const breath = (breathSin[i] * breathCosine + breathCos[i] * breathSine) * colourBreath;
       // Placement supplies the broad clumps. Only the low-noise shadow pockets
       // breathe here, and protected landmarks keep their original density.
       const gap = smooth((0.47 - field + breath * 0.026) / 0.3)
@@ -240,74 +260,84 @@ export function createMappedFace(shapes, reduce) {
       const occupancy = faceDensity * Math.max(0.42, 1 - messiness * 0.72 * gap);
       const density = occupancy >= 1 ? 1 : occupancy <= 0 ? 0
         : smooth((occupancy - DENSITY_RANDOM[i]) * 20 + 0.5);
-      const clump = Math.max(0.4, 1 + messiness * ((field - 0.5) * 0.8 + breath * 0.018) * (1 - protect * 0.7));
+      const clump = Math.max(0.4, 1 + messiness * ((field - 0.5) * 0.8 + breath * 0.018) * (1 - protect));
       const warmFocus = Math.max(eyeFocus * eyeGlow, (lipFocus * 0.72 + innerLight * 0.85) * lipProminence);
       const warmth = clamp(warmFocus * 0.78, 0, 0.92);
       // Deep shadows and emissive highlights remain image-led, while each
       // individual star has its own warm, white, blue or violet temperature.
       const shapedLuma = luma * (0.5 + 0.5 * Math.sqrt(Math.max(0, luma)));
-      const rawLight = shapedLuma * 2.8 * starGain[i] * clump * (1 + warmFocus * 0.82);
+      const rawLight = shapedLuma * 3.3 * featureGain * clump
+        * (1 + warmFocus * 0.82 + noseLight[i] * 0.26);
       // A soft highlight shoulder preserves orange/blue star temperatures
       // instead of clipping broad forehead and cheek regions to white.
       const shoulder = Math.max(0, rawLight - 0.8);
-      const light = (Math.min(0.8, rawLight) + shoulder / (1 + shoulder / 0.6))
+      const light = (Math.min(0.8, rawLight) + shoulder / (1 + shoulder / 0.7))
         * (1 - cavity * 0.78);
       let glimmer = 0;
       if (SPARK_RANDOM[i] < 0.015 && sparkle > 0) {
         const pulse = 0.5 + 0.5 * Math.sin(clock * 2.7 + P1[i]);
-        glimmer = sparkle * pulse * pulse * 1.25;
+        glimmer = sparkle * pulse * pulse * 1.25 * (1 - protect);
       }
-      for (let channel = 0; channel < 3; channel++) {
-        const source = (channel === 0 ? r : channel === 1 ? g : b) / peak;
-        const palette = STAR_TINT ? STAR_TINT[j + channel] : floorTint[channel];
-        const mixed = source + (palette - source) * tintMix[i];
-        const amber = channel === 0 ? 1 : channel === 1 ? 0.54 : 0.16;
-        const tint = mixed + (amber - mixed) * warmth;
-        FACE_COL[j + channel] = (floorTint[channel] * floor * (1 - cavity * 0.68)
-          + tint * light * (1 - floor) + palette * glimmer) * density;
+      const irisAmber = (irisLight[j] * 16 + irisLight[j + 1] * 1.4) * eyeGlow * contrast;
+      const catchlight = irisLight[j + 2] * 10 * eyeGlow * contrast;
+      // Explicit channels avoid a second hot loop and repeated channel
+      // branches while retaining the same operation order and output values.
+      const paletteR = STAR_TINT ? STAR_TINT[j] : floorTint[0];
+      const paletteG = STAR_TINT ? STAR_TINT[j + 1] : floorTint[1];
+      const paletteB = STAR_TINT ? STAR_TINT[j + 2] : floorTint[2];
+      const sourceR = r / peak, sourceG = g / peak, sourceB = b / peak;
+      const mixedR = sourceR + (paletteR - sourceR) * paletteMix;
+      const mixedG = sourceG + (paletteG - sourceG) * paletteMix;
+      const mixedB = sourceB + (paletteB - sourceB) * paletteMix;
+      const tintR = mixedR + (1 - mixedR) * warmth;
+      const tintG = mixedG + (0.54 - mixedG) * warmth;
+      const tintB = mixedB + (0.16 - mixedB) * warmth;
+      FACE_COL[j] = (floorTint[0] * floor * (1 - cavity * 0.68)
+        + tintR * light * (1 - floor) + paletteR * glimmer
+        + irisAmber + catchlight) * density;
+      FACE_COL[j + 1] = (floorTint[1] * floor * (1 - cavity * 0.68)
+        + tintG * light * (1 - floor) + paletteG * glimmer
+        + irisAmber * 0.46 + catchlight * 0.95) * density;
+      FACE_COL[j + 2] = (floorTint[2] * floor * (1 - cavity * 0.68)
+        + tintB * light * (1 - floor) + paletteB * glimmer
+        + irisAmber * 0.085 + catchlight * 0.78) * density;
+    }
+  }
+
+  // Iris light is evaluated only for the small eye neighbourhoods. It follows
+  // the existing image-space gaze and closing lid, never the drifting world
+  // positions, so the same home samples preserve a coherent face.
+  function updateIrisLight(expression, gaze, blink) {
+    const open = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
+    const visible = clamp((open - 0.015) / 0.985, 0, 1);
+    for (let side = 0; side < 2; side++) {
+      const centreU = eyes[side][0] + gaze.x * 0.006 * open;
+      const centreV = lowerLids[side] - (lowerLids[side] - eyes[side][1]) * open
+        - gaze.y * 0.004 * open;
+      const coreHeight = 0.009 * open + 0.001;
+      const haloHeight = 0.020 * open + 0.002;
+      const catchHeight = 0.003 * open + 0.0007;
+      const members = eyeParticles[side];
+      for (let n = 0; n < members.length; n++) {
+        const i = members[n], j = i * 3;
+        const dx = UV[i * 2] - centreU, dy = UV[i * 2 + 1] - centreV;
+        const cx = dx / 0.011, cy = dy / coreHeight;
+        const hx = dx / 0.029, hy = dy / haloHeight;
+        const sx = (dx + 0.0045) / 0.0042, sy = (dy + 0.0038 * open) / catchHeight;
+        const core = Math.max(0, 1 - cx * cx - cy * cy);
+        const halo = Math.max(0, 1 - hx * hx - hy * hy);
+        const glint = Math.max(0, 1 - sx * sx - sy * sy);
+        irisLight[j] = core * core * visible;
+        irisLight[j + 1] = halo * halo * visible;
+        irisLight[j + 2] = glint * glint * visible;
       }
     }
   }
 
-  function updateHalo(clock) {
-    const speed = reduce ? 0.4 : 1;
-    for (let i = I.halo[0]; i < I.halo[1]; i++) {
-      const j = i * 3, phase = clock * speed * P3[i] + P1[i];
-      const motion = P2[i] * dissolveAmount;
-      if (I.filaments && i >= I.filaments[0] && i < I.filaments[1]) {
-        const t = P4[i], anchoredMotion = motion * t;
-        // All stars of a strand share phase/speed. Broad positional noise bends
-        // the strand coherently; t=0 stays attached to its sampled face root.
-        const spatial = BASE[j] * 0.47 + BASE[j + 1] * 0.31;
-        FACE[j] = BASE[j] + (Math.sin(phase + t * 2.1)
-          + Math.sin(phase * 0.67 + spatial) * 0.36) * anchoredMotion;
-        FACE[j + 1] = BASE[j + 1] + Math.sin(phase * 0.79 + t * 1.6) * anchoredMotion * 0.8;
-        FACE[j + 2] = BASE[j + 2] / 1.6 * depthAmount
-          + Math.cos(phase * 0.71 + t * 2.4) * anchoredMotion * 0.72;
-        const membership = filamentAmount >= 1 ? 1 : filamentAmount <= 0 ? 0
-          : smooth((filamentAmount - P1[i] / (Math.PI * 2)) * 5 + 0.5);
-        const fade = dissolveAmount * membership * (1 + Math.max(0, filamentAmount - 1) * 0.6)
-          * (1.04 + 0.24 * Math.sin(phase * 0.71 + t));
-        FACE_COL[j] = BASE_COL[j] * fade;
-        FACE_COL[j + 1] = BASE_COL[j + 1] * fade;
-        FACE_COL[j + 2] = BASE_COL[j + 2] * fade;
-        continue;
-      }
-      FACE[j] = BASE[j] + Math.sin(phase) * motion;
-      // Upward travel eases before reversing; the loose crown never resets
-      // across the face or acquires the fixed grid's rows.
-      FACE[j + 1] = BASE[j + 1] + (Math.sin(phase * 0.63) + 1) * motion * (1 + P4[i]);
-      FACE[j + 2] = (BASE[j + 2] / 1.6) * depthAmount + Math.cos(phase * 0.87) * motion;
-      const fade = dissolveAmount * (0.72 + 0.28 * Math.sin(phase * 0.71 + P1[i])) * 2.2;
-      FACE_COL[j] = BASE_COL[j] * fade;
-      FACE_COL[j + 1] = BASE_COL[j + 1] * fade;
-      FACE_COL[j + 2] = BASE_COL[j + 2] * fade;
-    }
-  }
   function update(clock, expression, gaze, blink, envelope, shape) {
     updateWarp(expression, gaze, blink, envelope, shape);
+    updateIrisLight(expression, gaze, blink);
     updateColours(clock);
-    updateHalo(clock);
   }
   return { update, applyTuning };
 }

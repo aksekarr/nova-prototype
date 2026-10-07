@@ -37,6 +37,9 @@ const TUNING = {
   mouthWarpStrength: 1,
   sparkle: 0.12,
   messiness: 0.7,
+  faceDrift: 1,
+  edgeFlowSpeed: 1,
+  breath: 1,
   filamentAmount: 1,
   starSizeSpread: 1,
   gasWrap: 1
@@ -60,7 +63,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   // Keep these samples fixed so expressions and the orbiting halo cannot cause
   // the face camera to breathe. Its existing rotation remains untouched.
   updateFace(0, state.clock);
-  const faceSamples = new Float32Array(FACE);
+  const faceSamples = new Float32Array(mapFace ? shapes.BASE : FACE);
   let legacyFaceFrame = 0;
   for (let j = 0; j < faceSamples.length; j += 3) {
     legacyFaceFrame = Math.max(legacyFaceFrame, Math.abs(faceSamples[j + 1]) / ((16 - faceSamples[j + 2]) * slope));
@@ -101,6 +104,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   geom.setAttribute('size', new THREE.BufferAttribute(SIZE, 1));
   geom.setAttribute('glint', new THREE.BufferAttribute(GLINT, 1));
   geom.setAttribute('faceStarSize', new THREE.BufferAttribute(shapes.STAR_SIZE || SIZE, 1));
+  geom.setAttribute('faceProtection', new THREE.BufferAttribute(shapes.PROTECT || new Float32Array(N), 1));
   const uniforms = {
     pointSize: { value: 0 },
     viewportHeight: { value: 1 },
@@ -120,6 +124,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       attribute float size;
       attribute float glint;
       attribute float faceStarSize;
+      attribute float faceProtection;
       uniform float pointSize;
       uniform float viewportHeight;
       uniform float sizeVariation;
@@ -137,12 +142,15 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
         float distance = max(0.1, -viewPosition.z);
         gl_Position = projectionMatrix * viewPosition;
-        faceStarGlow = smoothstep(1.55, 3.0, faceStarSize) * faceDisplayMix;
+        faceStarGlow = smoothstep(1.55, 3.0, faceStarSize) * faceDisplayMix * (1.0 - faceProtection);
         sparkle = glint * nebulaGlints + faceStarGlow;
         spriteScale = 1.0 + sparkle * 1.4;
         // The rare big stars bloom around a small core rather than becoming
         // opaque disks. Preserve a broad size range at the portrait scale.
         float compactSize = faceStarSize > 1.0 ? 1.0 + (faceStarSize - 1.0) * 0.52 : faceStarSize;
+        // Retain the fine grains at the features, while suppressing oversized
+        // cores and their halos so bright stars cannot obscure the lips/eyes.
+        compactSize = mix(compactSize, min(compactSize, 0.85), faceProtection * 0.95);
         float starSize = max(0.18, 1.0 + (compactSize - 1.0) * starSizeSpread);
         float particleSize = mix(mix(1.0, size, sizeVariation), starSize, faceDisplayMix);
         gl_PointSize = pointSize * particleSize * viewportHeight * 0.5 / distance * spriteScale;
@@ -381,6 +389,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const targetCol = mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
     const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? (mapFace ? 0.25 + TUNING.gasWrap * 0.9 : 0.25) : 0.5;
     const targetNebula = mode === 'nebula' ? 1 : 0;
+    const recycled = mapFace && mode === 'face' && clock - modeT > 3.5 ? shapes.RECYCLED : null;
     let gasSum = 0, nebulaSum = 0, fitHeight = 0, fitWidth = 0;
     const frameHeight = mode === 'face' ? TUNING.faceFrame : TUNING.shapeFrame;
     const heightSlope = slope * frameHeight;
@@ -424,6 +433,12 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       if (i < FEATURE_END && ramp > 0) rate = rate + (0.45 - rate) * ramp;
       const k = i < FEATURE_END && ramp === 1 ? settledPositionRate : 1 - Math.pow(1 - rate, f60);
       frameRates[i] = k;
+      if (recycled && recycled[i]) {
+        // A streaming star wraps only after fading out. Move its invisible
+        // sprite directly to the new root instead of easing across the face.
+        POS[j] = tx; POS[j + 1] = ty; POS[j + 2] = tz;
+        COL[j] = 0; COL[j + 1] = 0; COL[j + 2] = 0;
+      }
       POS[j] += (tx - POS[j]) * k;
       POS[j + 1] += (ty - POS[j + 1]) * k;
       POS[j + 2] += (tz - POS[j + 2]) * k;
