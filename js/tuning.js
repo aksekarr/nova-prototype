@@ -1,4 +1,5 @@
 const CONTROLS = [
+  ['trailStrength', 'Trail strength', 0, 0.9, 0.01],
   ['bloomStrength', 'Bloom strength', 0, 2, 0.01],
   ['bloomRadius', 'Bloom radius', 0, 1, 0.01],
   ['bloomThreshold', 'Bloom threshold', 0, 1.5, 0.01],

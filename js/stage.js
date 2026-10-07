@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createGas } from './gas.js';
 import { createStars } from './stars.js';
 
 const TUNING = {
+  trailStrength: 0.72,
   bloomStrength: 0.45,
   bloomRadius: 0.35,
   bloomThreshold: 0.22,
@@ -138,6 +140,9 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
+  const trails = new AfterimagePass(0);
+  trails.enabled = false;
+  composer.addPass(trails);
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), TUNING.bloomStrength, TUNING.bloomRadius, TUNING.bloomThreshold);
   // Only the glow buffers are reduced; the particles and final output stay sharp.
   const setBloomSize = bloom.setSize.bind(bloom);
@@ -196,6 +201,31 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   });
 
   let last = performance.now() / 1000, rotY = 0;
+  let morphMode = state.mode, morphAge = 0, morphRemaining = 0;
+  const slowestMorphRate = RATE.reduce((slowest, rate) => Math.min(slowest, rate), 1);
+
+  function updateTrails(mode, dt) {
+    const changed = mode !== morphMode;
+    if (changed) {
+      morphMode = mode;
+      morphAge = 0;
+      morphRemaining = 1;
+    }
+    morphAge += dt;
+    // Follow the slowest particle's original morph easing, not the moving
+    // face targets. Use wall time so trails end before the speech timers even
+    // when a slow frame caps the particle simulation's dt.
+    morphRemaining *= Math.pow(1 - slowestMorphRate, dt * 60);
+    const envelope = THREE.MathUtils.smoothstep(morphAge, 0, 0.18)
+      * THREE.MathUtils.smoothstep(morphRemaining, 0.09, 0.5);
+    const strength = reduce || (mode === 'face' && state.speaking)
+      ? 0 : TUNING.trailStrength * envelope;
+    // A zero-damp first frame replaces stale history, including interrupted
+    // morphs. At rest bypass the pass entirely, leaving the face exactly crisp.
+    trails.uniforms.damp.value = strength > 0 && trails.enabled && !changed
+      ? Math.pow(strength, dt * 60) : 0;
+    trails.enabled = strength > 0;
+  }
 
   function projectClearance() {
     camera.updateMatrixWorld();
@@ -252,7 +282,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   }
 
   function frame(nowMs) {
-    const now = nowMs / 1000, dt = Math.min(0.05, now - last);
+    const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);
     last = now;
     state.clock += dt;
     const { mode, modeT, clock } = state;
@@ -345,6 +375,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     stars.update(clock, reduce);
     gas.update(dt, clock * speed, aN, gasSum / N, formMix, nebulaMix, clearCenter, clearExtent);
     gas.render(renderer);
+    updateTrails(mode, elapsed);
     composer.render();
     requestAnimationFrame(frame);
   }

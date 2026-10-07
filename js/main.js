@@ -4,12 +4,15 @@ import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const N = Math.min(window.innerWidth, window.innerHeight) < 600 ? 9000 : 16000;
+const defaultN = Math.min(window.innerWidth, window.innerHeight) < 600 ? 9000 : 16000;
+const requestedN = new URLSearchParams(window.location.search).get('n');
+const parsedN = requestedN === null || requestedN.trim() === '' ? NaN : Number(requestedN);
+const N = Number.isFinite(parsedN) ? Math.max(4000, Math.min(64000, Math.round(parsedN))) : defaultN;
 document.getElementById('r-n').textContent = N.toLocaleString('en-GB');
 
 const shapes = createShapes(N);
 const face = createFace(shapes, reduce);
-const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral' };
+const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral', speaking: false };
 const el = {
   state: document.getElementById('r-state'), expr: document.getElementById('r-expr'),
   voice: document.getElementById('r-voice'), caption: document.getElementById('caption'),
@@ -60,23 +63,32 @@ startStage({
 });
 
 // Each new interaction invalidates the pending steps of the scripted sequence.
-let seqId = 0;
+let seqId = 0, speechId = 0;
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-function stopAll() { seqId++; voice.stop(); }
+function stopAll() { seqId++; speechId++; state.speaking = false; voice.stop(); }
+async function speakLine(lineId) {
+  const id = ++speechId;
+  state.speaking = true;
+  try {
+    await voice.speak(lineId);
+  } finally {
+    if (id === speechId) state.speaking = false;
+  }
+}
 async function runSequence() {
   const id = ++seqId; function alive() { return id === seqId; }
   setExpr('neutral'); setMode('face'); restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
-  setExpr('warm'); await voice.speak('hello'); if (!alive()) return;
+  setExpr('warm'); await speakLine('hello'); if (!alive()) return;
   await sleep(350); if (!alive()) return;
-  setExpr('neutral'); await voice.speak('intro'); if (!alive()) return;
-  setExpr('curious'); await voice.speak('trees'); if (!alive()) return;
+  setExpr('neutral'); await speakLine('intro'); if (!alive()) return;
+  setExpr('curious'); await speakLine('trees'); if (!alive()) return;
   setMode('tree'); await sleep(1400); if (!alive()) return;
-  await voice.speak('tree'); if (!alive()) return;
+  await speakLine('tree'); if (!alive()) return;
   await sleep(1600); if (!alive()) return;
   setExpr('warm'); setMode('face'); restCaption('Returning…');
   await sleep(2600); if (!alive()) return;
-  await voice.speak('back'); if (!alive()) return;
+  await speakLine('back'); if (!alive()) return;
   setExpr('thinking'); restCaption('Listening.');
   await sleep(1800); if (!alive()) return;
   setExpr('neutral');
@@ -98,7 +110,7 @@ document.querySelectorAll('[data-expr]').forEach(function (b) {
 el.line.addEventListener('click', async function () {
   stopAll(); const id = seqId;
   if (state.mode !== 'face') { setMode('face'); restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
-  voice.speak('test');
+  speakLine('test');
 });
 el.sound.addEventListener('click', function () {
   soundOn = !soundOn;
