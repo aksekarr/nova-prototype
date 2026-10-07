@@ -1,0 +1,107 @@
+{
+  "coordinateSystem": "u from left (0) to right (1), v from top (0) to bottom (1), in the source plate and all maps",
+  "landmarks": {
+    "eyeL": [
+      0.319,
+      0.3509
+    ],
+    "eyeR": [
+      0.6818,
+      0.3509
+    ],
+    "eyeL_inner": [
+      0.4027,
+      0.3628
+    ],
+    "eyeL_outer": [
+      0.2632,
+      0.3429
+    ],
+    "eyeR_inner": [
+      0.6021,
+      0.3628
+    ],
+    "eyeR_outer": [
+      0.7416,
+      0.3429
+    ],
+    "eyeL_upperLid": [
+      0.319,
+      0.327
+    ],
+    "eyeL_lowerLid": [
+      0.319,
+      0.3748
+    ],
+    "eyeR_upperLid": [
+      0.6818,
+      0.327
+    ],
+    "eyeR_lowerLid": [
+      0.6818,
+      0.3748
+    ],
+    "browL_inner": [
+      0.4226,
+      0.2831
+    ],
+    "browL_peak": [
+      0.311,
+      0.2313
+    ],
+    "browL_outer": [
+      0.1994,
+      0.2552
+    ],
+    "browR_inner": [
+      0.5821,
+      0.2831
+    ],
+    "browR_peak": [
+      0.6898,
+      0.2392
+    ],
+    "browR_outer": [
+      0.7974,
+      0.2472
+    ],
+    "noseBridge": [
+      0.4825,
+      0.319
+    ],
+    "noseTip": [
+      0.4984,
+      0.5542
+    ],
+    "mouthLeft": [
+      0.3668,
+      0.6986
+    ],
+    "mouthRight": [
+      0.634,
+      0.7018
+    ],
+    "mouthCentre": [
+      0.4984,
+      0.7002
+    ],
+    "upperLipTop": [
+      0.4984,
+      0.6475
+    ],
+    "lowerLipBottom": [
+      0.4984,
+      0.7616
+    ],
+    "chin": [
+      0.4785,
+      0.8652
+    ]
+  },
+  "maps": {
+    "face-colour.png": "512x512 RGB colour and brightness, background already black (mask applied)",
+    "face-mask.png": "256x256 face coverage 0-1; the top of the forehead fades out (dissolve)",
+    "face-depth.png": "256x256 relative depth 0-1 (1 = nearest the viewer): rounded head, nose ridge and tip, lips, brow ridge, eye sockets"
+  },
+  "source": "face-source.png, AI-generated (ChatGPT image generation) by Avi Ravisekara, 7 Oct 2026. Maps derived by script from this image."
+}
