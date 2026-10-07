@@ -18,7 +18,10 @@ const TUNING = {
   gasScale: 1,
   dustStrength: 0.72,
   starfieldBrightness: 1,
-  glintStrength: 1
+  glintStrength: 1,
+  faceFrame: 0.44,
+  shapeFrame: 0.7,
+  driftAmount: 1
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
@@ -33,6 +36,17 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   let baseZ = 16;
+  const slope = Math.tan(camera.fov * Math.PI / 360);
+  // Calibrate against the old camera, independently for the two particle counts.
+  // Keep these samples fixed so expressions and the orbiting halo cannot cause
+  // the face camera to breathe. Its existing rotation remains untouched.
+  updateFace(0, state.clock);
+  const faceSamples = new Float32Array(FACE);
+  let legacyFaceFrame = 0;
+  for (let j = 0; j < faceSamples.length; j += 3) {
+    legacyFaceFrame = Math.max(legacyFaceFrame, Math.abs(faceSamples[j + 1]) / ((16 - faceSamples[j + 2]) * slope));
+  }
+  TUNING.faceFrame = Math.round(legacyFaceFrame * 1000) / 1000;
   const gas = createGas(scene);
   const stars = createStars(scene);
 
@@ -41,8 +55,15 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   const COL = new Float32Array(NEB_COL);
   // Track the same per-particle easing for the atmospheric crossfades.
   const gasWeight = new Float32Array(N).fill(1);
-  const faceMask = new Float32Array(N);
   const nebulaWeight = new Float32Array(N).fill(1);
+  const cameraDepth = new Float32Array(N).fill(baseZ);
+  const frameRates = new Float32Array(N);
+  const screenPoints = new Float32Array(N * 2);
+  const frameTargets = new Float32Array(N * 3);
+  const clipMatrix = new THREE.Matrix4();
+  const clearCenter = new THREE.Vector2(0.5, 0.5);
+  const clearExtent = new THREE.Vector2(0.1, 0.2);
+  let viewportWidth = 1, viewportHeight = 1, sized = false;
   const GLINT = new Float32Array(N);
   const largest = Array.from({ length: N }, (_, i) => i).sort((a, b) => SIZE[b] - SIZE[a] || a - b);
   for (let i = 0; i < Math.round(N * 0.005); i++) GLINT[largest[i]] = 1;
@@ -146,6 +167,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
 
   function resize() {
     const w = window.innerWidth, h = window.innerHeight, asp = w / h;
+    viewportWidth = w; viewportHeight = h;
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(w, h, false);
@@ -155,7 +177,11 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     camera.aspect = asp;
     baseZ = asp < 0.75 ? Math.min(26, 16 * 0.75 / asp) : 16;
     uniforms.focusDistance.value = baseZ;
-    camera.position.z = baseZ;
+    if (!sized) {
+      cameraDepth.fill(baseZ);
+      camera.position.z = baseZ;
+      sized = true;
+    }
     camera.updateProjectionMatrix();
     gas.resize(w, h, pixelRatio, camera);
     stars.resize(w, h, pixelRatio, camera);
@@ -170,6 +196,61 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   });
 
   let last = performance.now() / 1000, rotY = 0;
+
+  function projectClearance() {
+    camera.updateMatrixWorld();
+    points.updateMatrixWorld();
+    clipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(points.matrixWorld);
+    const m = clipMatrix.elements;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0, j = 0; i < N; i++, j += 3) {
+      const x = POS[j], y = POS[j + 1], z = POS[j + 2];
+      const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+      if (w <= 0.1) { screenPoints[i * 2] = NaN; continue; }
+      const sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w * 0.5 + 0.5;
+      const sy = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w * 0.5 + 0.5;
+      screenPoints[i * 2] = sx; screenPoints[i * 2 + 1] = sy;
+      minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+      minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+    }
+    if (!Number.isFinite(minX)) return;
+    clearCenter.set((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+    const rx = Math.max(0.001, (maxX - minX) * 0.5);
+    const ry = Math.max(0.001, (maxY - minY) * 0.5);
+    let radiusSquared = 1;
+    for (let i = 0; i < N; i++) {
+      if (!Number.isFinite(screenPoints[i * 2])) continue;
+      const x = (screenPoints[i * 2] - clearCenter.x) / rx;
+      const y = (screenPoints[i * 2 + 1] - clearCenter.y) / ry;
+      radiusSquared = Math.max(radiusSquared, x * x + y * y);
+    }
+    // Enclose the complete silhouette, then leave room for bloom before the
+    // feather starts. Reused buffers keep this independent of the shape's name.
+    const margin = Math.sqrt(radiusSquared) * 1.12;
+    clearExtent.set(rx * margin + 12 / viewportWidth, ry * margin + 12 / viewportHeight);
+  }
+
+  function fitFormHeight(distance, fraction) {
+    // Refine the conservative fit against the actual projected top and bottom.
+    // Two Newton steps avoid wasting height on asymmetric canopy/root bounds.
+    for (let pass = 0; pass < 2; pass++) {
+      let top = -Infinity, bottom = Infinity, topDerivative = 0, bottomDerivative = 0, nearest = 0;
+      for (let j = 0; j < frameTargets.length; j += 3) {
+        const y = frameTargets[j + 1], z = frameTargets[j + 2];
+        const inverseDepth = 1 / Math.max(0.1, distance - z);
+        const projected = y * inverseDepth;
+        const derivative = -projected * inverseDepth;
+        if (projected > top) { top = projected; topDerivative = derivative; }
+        if (projected < bottom) { bottom = projected; bottomDerivative = derivative; }
+        nearest = Math.max(nearest, z);
+      }
+      const derivative = topDerivative - bottomDerivative;
+      if (Math.abs(derivative) < 0.00001) break;
+      distance = Math.max(nearest + 0.5, distance - (top - bottom - 2 * slope * fraction) / derivative);
+    }
+    return distance;
+  }
+
   function frame(nowMs) {
     const now = nowMs / 1000, dt = Math.min(0.05, now - last);
     last = now;
@@ -185,10 +266,20 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     const shimmer = reduce ? 0.004 : 0.012, t2 = clock * 2;
     const f60 = dt * 60;
     const targetCol = mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
-    const targetGas = mode === 'nebula' ? 1 : mode === 'tree' ? 0.5 : 0.25;
-    const targetMask = mode === 'face' ? 1 : 0;
+    const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? 0.25 : 0.5;
     const targetNebula = mode === 'nebula' ? 1 : 0;
-    let gasSum = 0, maskSum = 0, nebulaSum = 0;
+    let gasSum = 0, nebulaSum = 0, fitHeight = 0, fitWidth = 0;
+    const frameHeight = mode === 'face' ? TUNING.faceFrame : TUNING.shapeFrame;
+    const heightSlope = slope * frameHeight;
+    // The face's spherical guard already includes its full orbiting halo;
+    // a little less padding preserves the legacy portrait face size.
+    const widthSlope = slope * camera.aspect * (mode === 'face' ? 0.92 : 0.86);
+    const widthGuard = Math.sqrt(1 + 1 / (widthSlope * widthSlope));
+
+    const wantY = mode === 'face' ? 0.12 * Math.sin(clock * 0.4) + mouse.x * 0.22 : 0;
+    rotY += (wantY - rotY) * Math.min(1, dt * 2);
+    points.rotation.y = rotY;
+    points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);
 
     for (let i = 0, j = 0; i < N; i++, j += 3) {
       let tx, ty, tz, bx, by, bz;
@@ -203,9 +294,21 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
       } else {
         tx = FACE[j]; ty = FACE[j + 1] + Math.sin(t2 + PH[i]) * shimmer; tz = FACE[j + 2];
       }
+      if (mode !== 'nebula') {
+        const fx = mode === 'face' ? faceSamples[j] : tx;
+        const fy = mode === 'face' ? faceSamples[j + 1] : ty;
+        const fz = mode === 'face' ? faceSamples[j + 2] : tz;
+        frameTargets[j] = fx; frameTargets[j + 1] = fy; frameTargets[j + 2] = fz;
+        fitHeight = Math.max(fitHeight, fz + Math.abs(fy) / heightSlope);
+        // Fit every orientation on narrow screens, without chasing the tree's
+        // rotating width and clipping while the camera catches up.
+        const radius = mode === 'face' ? Math.hypot(fx, fy, fz) : Math.hypot(fx, fz);
+        fitWidth = Math.max(fitWidth, radius * widthGuard);
+      }
       let rate = RATE[i];
       if (i < FEATURE_END && ramp > 0) rate = rate + (0.45 - rate) * ramp;
       const k = 1 - Math.pow(1 - rate, f60);
+      frameRates[i] = k;
       POS[j] += (tx - POS[j]) * k;
       POS[j + 1] += (ty - POS[j + 1]) * k;
       POS[j + 2] += (tz - POS[j + 2]) * k;
@@ -213,27 +316,34 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
       COL[j + 1] += (targetCol[j + 1] - COL[j + 1]) * k;
       COL[j + 2] += (targetCol[j + 2] - COL[j + 2]) * k;
       gasWeight[i] += (targetGas - gasWeight[i]) * k;
-      faceMask[i] += (targetMask - faceMask[i]) * k;
       nebulaWeight[i] += (targetNebula - nebulaWeight[i]) * k;
       gasSum += gasWeight[i];
-      maskSum += faceMask[i];
       nebulaSum += nebulaWeight[i];
     }
-    uniforms.nebulaGlints.value = nebulaSum / N;
+    const nebulaProgress = nebulaSum / N;
+    const nebulaMix = nebulaProgress < 0.0001 ? 0 : nebulaProgress > 0.9999 ? 1 : nebulaProgress;
+    uniforms.nebulaGlints.value = nebulaMix;
     geom.attributes.position.needsUpdate = true;
     geom.attributes.color.needsUpdate = true;
 
-    const wantY = mode === 'face' ? 0.12 * Math.sin(clock * 0.4) + mouse.x * 0.22 : 0;
-    rotY += (wantY - rotY) * Math.min(1, dt * 2);
-    points.rotation.y = rotY;
-    points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);
-    camera.position.x += (mouse.x * 0.6 - camera.position.x) * Math.min(1, dt * 1.5);
-    camera.position.y += (-mouse.y * 0.4 - camera.position.y) * Math.min(1, dt * 1.5);
-    camera.position.z = baseZ;
+    if (mode !== 'nebula' && mode !== 'face') fitHeight = fitFormHeight(fitHeight, frameHeight);
+    const targetDepth = mode === 'nebula' ? baseZ : Math.max(4, fitHeight, fitWidth);
+    let depthSum = 0;
+    for (let i = 0; i < N; i++) {
+      cameraDepth[i] += (targetDepth - cameraDepth[i]) * frameRates[i];
+      depthSum += cameraDepth[i];
+    }
+    const drift = reduce ? 0 : TUNING.driftAmount * nebulaMix;
+    camera.position.x += (mouse.x * 0.6 + Math.sin(clock * 0.028) * 0.55 * drift - camera.position.x) * Math.min(1, dt * 1.5);
+    camera.position.y += (-mouse.y * 0.4 + Math.sin(clock * 0.019) * 0.25 * drift - camera.position.y) * Math.min(1, dt * 1.5);
+    camera.position.z = depthSum / N + Math.sin(clock * 0.021) * 0.35 * drift;
+    uniforms.focusDistance.value = camera.position.z;
     camera.lookAt(0, 0, 0);
 
+    const formMix = 1 - nebulaMix;
+    if (formMix > 0.0001) projectClearance();
     stars.update(clock, reduce);
-    gas.update(dt, clock * speed, aN, gasSum / N, maskSum / N, camera, points);
+    gas.update(dt, clock * speed, aN, gasSum / N, formMix, nebulaMix, clearCenter, clearExtent);
     gas.render(renderer);
     composer.render();
     requestAnimationFrame(frame);

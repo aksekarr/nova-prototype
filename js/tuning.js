@@ -11,6 +11,9 @@ const CONTROLS = [
   ['dustStrength', 'Dust strength', 0, 1, 0.01],
   ['starfieldBrightness', 'Starfield brightness', 0, 2, 0.01],
   ['glintStrength', 'Glint strength', 0, 2, 0.01],
+  ['faceFrame', 'Face frame', 0.25, 0.8, 0.001],
+  ['shapeFrame', 'Shape frame', 0.35, 0.85, 0.01],
+  ['driftAmount', 'Drift amount', 0, 2, 0.01],
 ];
 
 export function createTuningPanel(tuning, onChange) {
