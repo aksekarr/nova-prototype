@@ -16,7 +16,7 @@ const TUNING = {
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
 export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
-  const { N, FEATURE_END, PH, RATE, FACE, COL, SIZE, NEB, TREE } = shapes;
+  const { N, FEATURE_END, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
   // r128 wrote linear colours directly; keep that output and the same clear colour.
@@ -29,9 +29,10 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
 
   const POS = new Float32Array(N * 3);
   for (let i = 0; i < N * 3; i++) POS[i] = NEB[i];
+  const COL = new Float32Array(NEB_COL);
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(POS, 3));
-  geom.setAttribute('color', new THREE.BufferAttribute(COL, 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(COL, 3).setUsage(THREE.DynamicDrawUsage));
   geom.setAttribute('size', new THREE.BufferAttribute(SIZE, 1));
   const uniforms = {
     pointSize: { value: 0 },
@@ -141,6 +142,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     const ramp = mode === 'face' ? Math.min(1, Math.max(0, (clock - modeT - 1.6) / 1.2)) : 0;
     const shimmer = reduce ? 0.004 : 0.012, t2 = clock * 2;
     const f60 = dt * 60;
+    const targetCol = mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
 
     for (let i = 0, j = 0; i < N; i++, j += 3) {
       let tx, ty, tz, bx, by, bz;
@@ -161,8 +163,12 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
       POS[j] += (tx - POS[j]) * k;
       POS[j + 1] += (ty - POS[j + 1]) * k;
       POS[j + 2] += (tz - POS[j + 2]) * k;
+      COL[j] += (targetCol[j] - COL[j]) * k;
+      COL[j + 1] += (targetCol[j + 1] - COL[j + 1]) * k;
+      COL[j + 2] += (targetCol[j + 2] - COL[j + 2]) * k;
     }
     geom.attributes.position.needsUpdate = true;
+    geom.attributes.color.needsUpdate = true;
 
     const wantY = mode === 'face' ? 0.12 * Math.sin(clock * 0.4) + mouse.x * 0.22 : 0;
     rotY += (wantY - rotY) * Math.min(1, dt * 2);
