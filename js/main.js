@@ -13,17 +13,20 @@ const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral' };
 const el = {
   state: document.getElementById('r-state'), expr: document.getElementById('r-expr'),
   voice: document.getElementById('r-voice'), caption: document.getElementById('caption'),
-  wake: document.getElementById('wake'), sound: document.getElementById('sound')
+  wake: document.getElementById('wake'), sound: document.getElementById('sound'),
+  line: document.getElementById('line')
 };
 const LABEL = { nebula: 'Nebula', face: 'Face', tree: 'Tree' };
 let soundOn = true;
-let updateVoice, renderVoice;
 const voice = createVoice({
   caption: el.caption,
-  readout: el.voice,
-  getClock: () => state.clock,
-  onFrame: update => { updateVoice = update; },
-  onRender: render => { renderVoice = render; }
+  readout: el.voice
+});
+voice.preload(['hello', 'intro', 'trees', 'tree', 'back', 'test']).then(() => {
+  el.wake.disabled = false;
+  el.line.disabled = false;
+}).catch(() => {
+  // Voice reports the failure; shape and expression controls remain available.
 });
 
 function setMode(m) {
@@ -52,9 +55,8 @@ function restCaption(text) {
 
 startStage({
   shapes, reduce, state,
-  onFrame: (dt, clock) => updateVoice(dt, clock),
-  updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope()),
-  onRender: () => renderVoice()
+  onFrame: dt => voice.update(dt),
+  updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope())
 });
 
 // Each new interaction invalidates the pending steps of the scripted sequence.
@@ -65,16 +67,16 @@ async function runSequence() {
   const id = ++seqId; function alive() { return id === seqId; }
   setExpr('neutral'); setMode('face'); restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
-  setExpr('warm'); await voice.speak("Hello. I'm Nova."); if (!alive()) return;
+  setExpr('warm'); await voice.speak('hello'); if (!alive()) return;
   await sleep(350); if (!alive()) return;
-  setExpr('neutral'); await voice.speak("I'm not a person. I'm a voice, and a cloud of light that takes whatever shape helps."); if (!alive()) return;
-  setExpr('curious'); await voice.speak("Say we're talking about trees."); if (!alive()) return;
+  setExpr('neutral'); await voice.speak('intro'); if (!alive()) return;
+  setExpr('curious'); await voice.speak('trees'); if (!alive()) return;
   setMode('tree'); await sleep(1400); if (!alive()) return;
-  await voice.speak("Roots below. A trunk to carry the weight. A canopy reaching for the light."); if (!alive()) return;
+  await voice.speak('tree'); if (!alive()) return;
   await sleep(1600); if (!alive()) return;
   setExpr('warm'); setMode('face'); restCaption('Returning…');
   await sleep(2600); if (!alive()) return;
-  await voice.speak("And then I come back to you."); if (!alive()) return;
+  await voice.speak('back'); if (!alive()) return;
   setExpr('thinking'); restCaption('Listening.');
   await sleep(1800); if (!alive()) return;
   setExpr('neutral');
@@ -93,10 +95,10 @@ document.querySelectorAll('[data-mode]').forEach(function (b) {
 document.querySelectorAll('[data-expr]').forEach(function (b) {
   b.addEventListener('click', function () { setExpr(b.dataset.expr); });
 });
-document.getElementById('line').addEventListener('click', async function () {
+el.line.addEventListener('click', async function () {
   stopAll(); const id = seqId;
   if (state.mode !== 'face') { setMode('face'); restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
-  voice.speak("This is a test line, so you can watch the mouth follow the voice.");
+  voice.speak('test');
 });
 el.sound.addEventListener('click', function () {
   soundOn = !soundOn;

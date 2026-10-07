@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame, onRender }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   const { N, FEATURE_END, PH, RATE, FACE, COL, NEB, TREE } = shapes;
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
@@ -97,7 +97,6 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, onRende
     camera.position.z = baseZ;
     camera.lookAt(0, 0, 0);
 
-    onRender();
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }

@@ -23,7 +23,7 @@
   <dl class="readout">
     <div><dt>State</dt><dd id="r-state" class="live">Nebula</dd></div>
     <div><dt>Expression</dt><dd id="r-expr">Neutral</dd></div>
-    <div><dt>Voice</dt><dd id="r-voice">Silent</dd></div>
+    <div><dt>Voice</dt><dd id="r-voice">Loading</dd></div>
     <div><dt>Particles</dt><dd id="r-n">0</dd></div>
   </dl>
 </header>
@@ -31,7 +31,7 @@
 <section class="bottom">
   <p class="caption rest" id="caption" aria-live="polite">At rest. Press Wake Nova to watch it form, speak and change shape.</p>
   <div class="dock">
-    <button id="wake" class="primary">Wake Nova</button>
+    <button id="wake" class="primary" disabled>Wake Nova</button>
     <div class="group" role="group" aria-label="Shape">
       <span>Shape</span>
       <div class="row">
@@ -52,12 +52,12 @@
     <div class="group" role="group" aria-label="Voice">
       <span>Voice</span>
       <div class="row">
-        <button id="line">Test line</button>
+        <button id="line" disabled>Test line</button>
         <button id="sound" aria-pressed="true">Sound on</button>
       </div>
     </div>
   </div>
-  <p class="note">Prototype. Placeholder voice: a synthesised babble, not words. No AI connected.</p>
+  <p class="note">Prototype. Voice: ElevenLabs (Luna). No live AI connected.</p>
 </section>
 
 </body>

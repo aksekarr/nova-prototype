@@ -5,7 +5,7 @@
 - Never put API keys or secrets anywhere in this repository.
 - Treat `reference/` as read-only. Do not edit, move, or delete its contents.
 - Keep `js/shapes.js` pure: no DOM access, three.js imports, or external state changes.
-- Keep the `js/voice.js` interface stable: `speak(text)` returns a Promise, `stop()`, `currentEnvelope()`, and `setSoundOn(bool)`.
+- Keep the `js/voice.js` interface stable: `preload(ids)` returns a Promise; `speak(id)` returns a Promise that resolves when the line ends or is stopped; `stop()`, `currentEnvelope()`, `setSoundOn(bool)`, and `update(dt)` called once per frame.
 - Use plain ES modules and static files. Do not add a build step, `package.json`, or npm tooling.
 - Preserve the reference's visual values, timings, expression values, particle counts, copy, and behavior during restructuring.
 - Never run `scripts/make_voice.py` with `--go` or `--force`, and never read `~/.nova-key`; generation costs money and is run only by the user.
