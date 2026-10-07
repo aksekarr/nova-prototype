@@ -56,7 +56,7 @@ function restCaption(text) {
 startStage({
   shapes, reduce, state,
   onFrame: dt => voice.update(dt),
-  updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope())
+  updateFace: (dt, clock) => face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape())
 });
 
 // Each new interaction invalidates the pending steps of the scripted sequence.

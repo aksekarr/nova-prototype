@@ -15,7 +15,7 @@ export function createFace(shapes, reduce) {
   const gaze = { x: 0, y: 0, tx: 0, ty: 0, next: 2 };
   let blinkAt = 3, blinkV = 1;
 
-  function update(dt, clock, exprName, envelope) {
+  function update(dt, clock, exprName, envelope, shape) {
     const tgt = EXPR[exprName], k = 1 - Math.pow(0.04, dt);
     cur.smile = lerp(cur.smile, tgt.smile, k);
     cur.browL = lerp(cur.browL, tgt.browL, k);
@@ -71,11 +71,11 @@ export function createFace(shapes, reduce) {
         FACE[i * 3 + 2] = surfZ(bx, 1.3) + 0.12;
       }
     }
-    const mOpen = envelope * 1.0 + 0.015, base = -1.45;
+    const mOpen = (envelope * 1.0 + 0.015) * shape.h * (1 - shape.close), base = -1.45;
     for (let i = I.mouth[0]; i < I.mouth[1]; i++) {
-      const mu = P1[i], mx = mu * 0.72 * (1 + 0.12 * cur.smile);
+      const mu = P1[i], mx = mu * 0.72 * (1 + 0.12 * cur.smile) * shape.w;
       FACE[i * 3] = mx;
-      FACE[i * 3 + 1] = base + cur.smile * 0.32 * mu * mu + P2[i] * mOpen * 0.45 * Math.sqrt(1 - mu * mu) + P3[i];
+      FACE[i * 3 + 1] = base + cur.smile * 0.32 * mu * mu * (1 - 0.7 * shape.round) + P2[i] * mOpen * 0.45 * Math.sqrt(1 - mu * mu) + P3[i];
       FACE[i * 3 + 2] = surfZ(mx, base) + 0.1;
     }
     const ct = Math.cos(0.42), st = Math.sin(0.42), cz = Math.cos(0.18), sz = Math.sin(0.18);
