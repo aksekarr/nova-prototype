@@ -1,7 +1,22 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const TUNING = {
+  bloomStrength: 0.45,
+  bloomRadius: 0.35,
+  bloomThreshold: 0.22,
+  pointSize: 0.075,
+  sizeVariation: 0.8,
+  depthFade: 0.4,
+  brightness: 1.1
+};
+const BLOOM_RESOLUTION_SCALE = 0.5;
 
 export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
-  const { N, FEATURE_END, PH, RATE, FACE, COL, NEB, TREE } = shapes;
+  const { N, FEATURE_END, PH, RATE, FACE, COL, SIZE, NEB, TREE } = shapes;
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
   // r128 wrote linear colours directly; keep that output and the same clear colour.
@@ -12,37 +27,98 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   let baseZ = 16;
 
-  function resize() {
-    const w = window.innerWidth, h = window.innerHeight, asp = w / h;
-    renderer.setSize(w, h, false);
-    camera.aspect = asp;
-    baseZ = asp < 0.75 ? Math.min(26, 16 * 0.75 / asp) : 16;
-    camera.updateProjectionMatrix();
-  }
-  resize();
-  window.addEventListener('resize', resize);
-
-  const sprite = document.createElement('canvas');
-  sprite.width = sprite.height = 64;
-  const sx = sprite.getContext('2d');
-  const grd = sx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.25, 'rgba(255,255,255,0.75)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  sx.fillStyle = grd;
-  sx.fillRect(0, 0, 64, 64);
-
   const POS = new Float32Array(N * 3);
   for (let i = 0; i < N * 3; i++) POS[i] = NEB[i];
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(POS, 3));
   geom.setAttribute('color', new THREE.BufferAttribute(COL, 3));
-  const mat = new THREE.PointsMaterial({
-    size: N > 10000 ? 0.075 : 0.09, map: new THREE.CanvasTexture(sprite), vertexColors: true,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+  geom.setAttribute('size', new THREE.BufferAttribute(SIZE, 1));
+  const uniforms = {
+    pointSize: { value: 0 },
+    viewportHeight: { value: 1 },
+    sizeVariation: { value: TUNING.sizeVariation },
+    depthFade: { value: TUNING.depthFade },
+    brightness: { value: TUNING.brightness },
+    focusDistance: { value: baseZ }
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, vertexColors: true,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float size;
+      uniform float pointSize;
+      uniform float viewportHeight;
+      uniform float sizeVariation;
+      uniform float depthFade;
+      uniform float focusDistance;
+      varying vec3 particleColor;
+      varying float particleFade;
+      void main() {
+        vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+        float distance = max(0.1, -viewPosition.z);
+        gl_Position = projectionMatrix * viewPosition;
+        gl_PointSize = pointSize * mix(1.0, size, sizeVariation) * viewportHeight * 0.5 / distance;
+        particleColor = color;
+        float depth = max(0.0, distance - (focusDistance - 4.0));
+        particleFade = mix(1.0, exp(-depth * 0.12), depthFade);
+      }
+    `,
+    fragmentShader: `
+      uniform float brightness;
+      varying vec3 particleColor;
+      varying float particleFade;
+      void main() {
+        float radius = length(gl_PointCoord * 2.0 - 1.0);
+        if (radius >= 1.0) discard;
+        float alpha = pow(1.0 - radius, 1.5);
+        gl_FragColor = vec4(particleColor * brightness * particleFade, alpha);
+      }
+    `
   });
   const points = new THREE.Points(geom, mat);
   scene.add(points);
+
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), TUNING.bloomStrength, TUNING.bloomRadius, TUNING.bloomThreshold);
+  // Only the glow buffers are reduced; the particles and final output stay sharp.
+  const setBloomSize = bloom.setSize.bind(bloom);
+  bloom.setSize = (w, h) => setBloomSize(
+    Math.max(1, Math.round(w * BLOOM_RESOLUTION_SCALE)),
+    Math.max(1, Math.round(h * BLOOM_RESOLUTION_SCALE))
+  );
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+
+  function applyTuning() {
+    bloom.strength = TUNING.bloomStrength;
+    bloom.radius = TUNING.bloomRadius;
+    bloom.threshold = TUNING.bloomThreshold;
+    uniforms.pointSize.value = TUNING.pointSize * (N > 10000 ? 1 : 1.2);
+    uniforms.sizeVariation.value = TUNING.sizeVariation;
+    uniforms.depthFade.value = TUNING.depthFade;
+    uniforms.brightness.value = TUNING.brightness;
+  }
+  applyTuning();
+  if (new URLSearchParams(window.location.search).get('tune') === '1') {
+    import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING, applyTuning));
+  }
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight, asp = w / h;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(w, h, false);
+    composer.setPixelRatio(pixelRatio);
+    composer.setSize(w, h);
+    uniforms.viewportHeight.value = h * pixelRatio;
+    camera.aspect = asp;
+    baseZ = asp < 0.75 ? Math.min(26, 16 * 0.75 / asp) : 16;
+    uniforms.focusDistance.value = baseZ;
+    camera.updateProjectionMatrix();
+  }
+  resize();
+  window.addEventListener('resize', resize);
 
   const mouse = { x: 0, y: 0 };
   window.addEventListener('pointermove', function (e) {
@@ -97,7 +173,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame }) {
     camera.position.z = baseZ;
     camera.lookAt(0, 0, 0);
 
-    renderer.render(scene, camera);
+    composer.render();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

@@ -214,5 +214,13 @@ export function createShapes(N) {
     }
   }
 
-  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, NEB, TREE, EYE_X, EYE_Y, EYE_Z, surfZ };
+  // Consume size randomness last so every existing position and colour stays exact.
+  const SIZE = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const feature = (i >= I.eyeL[0] && i < I.eyeR[1]) ||
+      (i >= I.mouth[0] && i < I.mouth[1]);
+    SIZE[i] = feature ? 1.15 : R() < 0.03 ? 1.6 + R() : 0.8 + R() * 0.4;
+  }
+
+  return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, NEB, TREE, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ };
 }

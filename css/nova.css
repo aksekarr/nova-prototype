@@ -98,3 +98,51 @@ button.primary:hover { background: rgba(255, 181, 98, 0.1); }
   button { padding: 8px 10px; font-size: 0.66rem; }
   .caption { font-size: 0.92rem; }
 }
+
+.tuning {
+  position: fixed; z-index: 2;
+  top: calc(env(safe-area-inset-top, 0px) + 120px); right: 16px;
+  width: 246px; max-width: calc(100vw - 32px);
+  border: 1px solid var(--rule); border-radius: 3px;
+  background: rgba(4, 6, 12, 0.9); color: var(--ink);
+  font-family: var(--mono); font-size: 0.65rem;
+}
+.tuning > summary {
+  padding: 11px 12px; cursor: pointer;
+  font-family: var(--display); font-size: 0.75rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.tuning > summary::marker { color: var(--ember); }
+.tuning > summary:focus-visible,
+.tuning input:focus-visible,
+.tuning textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+.tuning-content {
+  padding: 0 12px 12px; display: grid; gap: 10px;
+  max-height: calc(100dvh - 310px); overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tuning-control {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+  align-items: center;
+}
+.tuning-control output { color: var(--ember); font-variant-numeric: tabular-nums; }
+.tuning-control input {
+  grid-column: 1 / -1; width: 100%; margin: 0;
+  accent-color: var(--ember); cursor: pointer;
+}
+.tuning-json {
+  box-sizing: border-box; display: block; width: 100%; height: 142px;
+  resize: none; padding: 8px; border: 1px solid var(--rule); border-radius: 2px;
+  background: var(--veil); color: var(--dim);
+  font: 0.6rem/1.5 var(--mono); white-space: pre;
+}
+.tuning-footer { display: flex; align-items: center; gap: 10px; }
+.tuning-footer button { padding: 6px 10px; font-size: 0.65rem; }
+.tuning-status { color: var(--dim); font-size: 0.6rem; }
+
+@media (max-width: 560px) {
+  .tuning { right: 12px; width: 220px; max-width: calc(100vw - 24px); }
+  .tuning > summary { padding: 9px 10px; font-size: 0.68rem; }
+  .tuning-content { max-height: min(290px, calc(100dvh - 350px)); gap: 7px; padding: 0 10px 10px; }
+  .tuning-json { height: 110px; }
+}

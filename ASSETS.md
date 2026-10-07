@@ -1,8 +1,8 @@
 ## three.js
-Asset: three.js 0.169.0 ES module
-Source: https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js ; https://cdn.jsdelivr.net/npm/three@0.169.0/LICENSE
+Asset: three.js 0.169.0 ES module and post-processing add-ons
+Source: https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js ; https://cdn.jsdelivr.net/npm/three@0.169.0/LICENSE ; https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/
 Licence: MIT
-File: js/vendor/three.module.js ; js/vendor/THREE-LICENSE.txt
+File: js/vendor/three.module.js ; js/vendor/THREE-LICENSE.txt ; js/vendor/addons/postprocessing/{EffectComposer,RenderPass,UnrealBloomPass,OutputPass,Pass,ShaderPass,MaskPass}.js ; js/vendor/addons/shaders/{CopyShader,OutputShader,LuminosityHighPassShader}.js
 Used in: index.html import map; js/stage.js
 Chosen: 2026-10-07
 
