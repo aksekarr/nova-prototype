@@ -6,6 +6,11 @@ const CONTROLS = [
   ['sizeVariation', 'Size variation', 0, 1, 0.01],
   ['depthFade', 'Depth fade', 0, 1, 0.01],
   ['brightness', 'Brightness', 0.2, 2, 0.01],
+  ['gasIntensity', 'Gas intensity', 0, 1, 0.01],
+  ['gasScale', 'Gas scale', 0.5, 2, 0.01],
+  ['dustStrength', 'Dust strength', 0, 1, 0.01],
+  ['starfieldBrightness', 'Starfield brightness', 0, 2, 0.01],
+  ['glintStrength', 'Glint strength', 0, 2, 0.01],
 ];
 
 export function createTuningPanel(tuning, onChange) {

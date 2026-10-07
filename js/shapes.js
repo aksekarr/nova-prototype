@@ -328,5 +328,68 @@ export function createShapes(N) {
     TREE_COL[j + 2] = treeLight * (tip ? 0.85 : 0.43 + thin * 0.31);
   }
 
+  // Recolour only after every legacy draw. The same spatial fields carry light
+  // along the arms, through their dust, and into the knots without extra draws.
+  for (let i = 0; i < N; i++) {
+    const j = i * 3, x = NEB[j];
+    const z = (-NEB[j + 1] * sy + NEB[j + 2] * cy) / 0.7;
+    const radius = Math.hypot(x, z), angle = Math.atan2(z, x);
+    const light = Math.max(NEB_COL[j], NEB_COL[j + 1], NEB_COL[j + 2]);
+    const halo = light < 0.084;
+    const amberStar = NEB_COL[j] > NEB_COL[j + 2];
+    const core = Math.exp(-Math.pow(radius / 3.1, 2));
+    const phase = angle - radius * 0.42;
+    const armDistance = Math.atan2(Math.sin(phase * 3), Math.cos(phase * 3)) / 3;
+    const armLight = Math.exp(-Math.pow(armDistance / 0.34, 2));
+    let red = 0.53, green = 0.76, blue = 1.0;
+
+    // A broad teal outer region blends into icy arm light, not isolated dots.
+    const teal = (0.5 + 0.5 * Math.sin(angle + 0.7)) *
+      Math.exp(-Math.pow((radius - 7) / 3.1, 2)) * 0.56;
+    red += (0.22 - red) * teal;
+    green += (0.86 - green) * teal;
+    blue += (0.84 - blue) * teal;
+
+    // Coloured envelopes surround pale hot knots, like illuminated gas rather
+    // than four solid-colour beads. The inner knot joins the warm bulge below.
+    for (let k = 0; k < knots.length; k++) {
+      const dx = x - knots[k][0], dz = z - knots[k][1];
+      const d2 = dx * dx + dz * dz;
+      const glow = Math.exp(-d2 / 3.3) * (1 - 0.48 * Math.exp(-d2 / 0.32)) * 0.78;
+      const magenta = k % 2 === 1;
+      red += ((magenta ? 0.94 : 0.62) - red) * glow;
+      green += ((magenta ? 0.43 : 0.40) - green) * glow;
+      blue += ((magenta ? 0.81 : 1.0) - blue) * glow;
+    }
+    const warm = Math.pow(core, 0.68);
+    red += (1.0 - red) * warm;
+    green += (0.85 - green) * warm;
+    blue += (0.63 - blue) * warm;
+
+    // Narrow reddish-brown seams thread the blue arms; sparse crossing bands
+    // keep their dark edges. Small deterministic undulations avoid uniform rings.
+    const laneA = Math.abs(x * 0.78 + z * 0.63 + 1.6);
+    const laneB = Math.abs(-x * 0.48 + z * 0.88 - 3.1);
+    const threadPhase = phase - 0.13 - 0.035 * Math.sin(radius * 2.6 + angle);
+    const armLane = Math.abs(Math.sin(1.5 * threadPhase)) * radius / 1.5;
+    const dust = (1 - core * 0.76) * Math.max(
+      Math.exp(-Math.pow(laneA / 0.76, 4)) * 0.85,
+      Math.exp(-Math.pow(laneB / 0.82, 4)) * 0.85,
+      Math.exp(-Math.pow(armLane / 0.32, 2)) * 0.96
+    );
+    red += (0.38 - red) * dust;
+    green += (0.16 - green) * dust;
+    blue += (0.12 - blue) * dust;
+    if (amberStar) { red = 1; green = 0.80; blue = 0.54; }
+    // Lift the continuous arm population more than the already-dense knots.
+    // Distant halo particles retain their original low luminosity.
+    const illumination = halo ? light : (0.14 + light * 0.80) *
+      (0.88 + armLight * 0.32 + core * 0.52);
+    const intensity = illumination * (1 - dust * 0.64);
+    NEB_COL[j] = red * intensity;
+    NEB_COL[j + 1] = green * intensity;
+    NEB_COL[j + 2] = blue * intensity;
+  }
+
   return { N, I, FEATURE_END, P1, P2, P3, P4, PH, RATE, FACE, COL, FACE_COL, NEB, NEB_COL, TREE, TREE_COL, SIZE, EYE_X, EYE_Y, EYE_Z, surfZ };
 }
