@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Nova · ElevenLabs agent spike</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+    body { max-width: 1100px; margin: 32px auto; padding: 0 20px; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-bottom: 8px; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    input, button { font: inherit; padding: 8px 12px; }
+    input { flex: 1; min-width: 200px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    .note { font-size: .9rem; opacity: .8; }
+    pre { padding: 16px; border: 1px solid #8886; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; }
+    #log { height: 42vh; overflow: auto; }
+    #status { min-height: 1.5em; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.27.0/dist/lib.iife.js" defer></script>
+  <script src="./agent.js" type="module"></script>
+</head>
+<body>
+  <h1>ElevenLabs live agent spike</h1>
+  <p>Compare callback arrival, character alignment, audio tags, and output volume. Each run stops after 90 seconds, including connection time.</p>
+  <div class="controls">
+    <label for="agent-id">Agent ID</label>
+    <input id="agent-id" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste agent ID for this run">
+    <button id="start-websocket" type="button" disabled>Start (WebSocket)</button>
+    <button id="start-webrtc" type="button" disabled>Start (WebRTC)</button>
+    <button id="stop" type="button" disabled>Stop</button>
+  </div>
+  <p id="status" role="status">Loading pinned ElevenLabs client…</p>
+  <p class="note">Start uses your microphone and ElevenLabs credits. The ID is cleared after Start and is never included in the page URL or saved. Logs stay in memory until you copy or download them.</p>
+  <p class="note">Output volume is an SDK analyser reading, sampled every 50 ms while connected. It is a timing proxy, not a measurement of sound reaching your ears. WebRTC may also report SDK-generated audio events. Keep this page in the foreground for reliable timing.</p>
+  <div class="controls">
+    <button id="copy-summary" type="button" disabled>Copy summary</button>
+    <button id="download-log" type="button" disabled>Download log</button>
+  </div>
+  <h2>Summary at Stop</h2>
+  <pre id="summary">No completed run.</pre>
+  <h2>Live log — t in milliseconds since Start</h2>
+  <pre id="log" aria-label="Live callback log" tabindex="0"></pre>
+</body>
+</html>
