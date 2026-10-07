@@ -4,5 +4,11 @@
   {"id": "trees", "text": "[curious] Say we're talking about trees."},
   {"id": "tree", "text": "[softly] Roots below. A trunk to carry the weight. A canopy, reaching for the light."},
   {"id": "back", "text": "[lightly amused] And then I come back to you."},
-  {"id": "test", "text": "[playfully] Watch the mouth. It follows every word I say."}
+  {"id": "test", "text": "[playfully] Watch the mouth. It follows every word I say."},
+  {"id": "lab-press", "text": "[calm] Maybe we could meet by the bay. Five vivid violins wove through the evening. Who knew the moon would look so blue?"},
+  {"id": "lab-wide", "text": "[brightly] Easy, breezy, see the leaves sweep east. Eight great lakes lay waiting, and everyone agreed."},
+  {"id": "lab-open", "text": "[curious] Ah, but what about the stars? Are they far away, or are they all around us, right now?"},
+  {"id": "lab-slow", "text": "[warmly] I think the best conversations happen slowly. You ask something simple, I wonder about it, and somewhere in the middle, we both learn a little more than we expected."},
+  {"id": "lab-moods", "text": "[excited] Oh, that's brilliant! [softly] But wait. Listen. [whispers] Can you hear it? [laughs] No, of course you can't. It's only me."},
+  {"id": "lab-fast", "text": "[quickly] Thirty-three thoughtful thinkers thought through three things, then thanked each other and moved on."}
 ]
