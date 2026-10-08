@@ -98,7 +98,10 @@ export function createCueExpressions() {
       moodStart = cue.start;
     }
     Object.assign(mood.weights, mix(source, destination, phase(position - moodStart, moodAttack)).weights);
-    mood.microSuppression = clamp(Object.values(mood.weights).reduce((sum, weight) => sum + weight, 0), 0, 1);
+    // Moods dim the micro layer by only part of their strength, so sustained
+    // poses keep some life; laughs, chuckles and sighs still suppress it fully.
+    const moodMicro = Number.isFinite(timing.moodMicroSuppression) ? clamp(timing.moodMicroSuppression, 0, 1) : 1;
+    mood.microSuppression = clamp(Object.values(mood.weights).reduce((sum, weight) => sum + weight, 0) * moodMicro, 0, 1);
     // Only thinking may steer the eyes, and only during its first brief glance.
     for (const cue of moods) {
       const mapping = mapCue(cue), age = position - cue.start;
