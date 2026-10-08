@@ -80,6 +80,13 @@ body { background: var(--void); color: var(--ink); font-family: var(--mono); ove
 .group { display: flex; flex-direction: column; gap: 6px; }
 .group > span { font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
 .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.live-group input {
+  box-sizing: border-box; width: 150px; min-width: 0; padding: 9px;
+  font: 0.72rem var(--mono); color: var(--ink); background: var(--veil);
+  border: 1px solid var(--rule); border-radius: 2px;
+}
+.live-group input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+.live-group button:disabled { opacity: 0.5; cursor: default; }
 button {
   font-family: var(--display); font-weight: 500; font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink); background: var(--veil); border: 1px solid var(--rule); border-radius: 2px;

@@ -6,6 +6,15 @@ File: js/vendor/three.module.js ; js/vendor/THREE-LICENSE.txt ; js/vendor/addons
 Used in: index.html import map; js/stage.js
 Chosen: 2026-10-07
 
+## ElevenLabs client (dev-only live mode)
+Asset: @elevenlabs/client 1.27.0 IIFE, vendored unchanged
+Source: https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.27.0/dist/lib.iife.js
+Licence: MIT (package.json); https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.27.0/LICENSE
+File: js/vendor/elevenlabs-client-1.27.0.iife.js; js/vendor/ELEVENLABS-CLIENT-LICENSE.txt
+SHA-256: f69a845935c3788ea46a73b09ead74640dfba5be135f225eac719df3a320c9cd
+Used in: js/main.js, loaded on Start only with ?live=1
+Chosen: 2026-10-08
+
 ## Nova face source plate
 Asset: Nova face source plate — AI-generated (ChatGPT image generation) by Avi Ravisekara, 2026-10-07; maps derived by Claude via script
 Licence: owned output, labelled AI-generated
