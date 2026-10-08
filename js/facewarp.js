@@ -53,6 +53,7 @@ export function createMappedFace(shapes, reduce) {
   const lids = [landmarks.eyeL_upperLid[1], landmarks.eyeR_upperLid[1]];
   const lowerLids = [landmarks.eyeL_lowerLid[1], landmarks.eyeR_lowerLid[1]];
   const brows = [landmarks.browL_peak, landmarks.browR_peak];
+  const innerBrows = [landmarks.browL_inner, landmarks.browR_inner];
   const average = MAPS.average;
   const averagePeak = Math.max(...average, 0.001);
   const floorTint = average.map(value => 0.45 + value / averagePeak * 0.55);
@@ -60,6 +61,9 @@ export function createMappedFace(shapes, reduce) {
   const protectedGain = new Float64Array(count), protectedTintMix = new Float64Array(count);
   const breathSin = new Float32Array(count), breathCos = new Float32Array(count);
   const irisLight = new Float32Array(count * 3), noseLight = new Float32Array(count);
+  const socketLight = new Float32Array(count);
+  const eyePose = new Float64Array(10);
+  const eyeSculpt = new Float64Array(count * 2);
   const eyeMembers = [[], []];
   const noseU = (landmarks.noseBridge[0] + landmarks.noseTip[0]) * 0.5;
   const noseV = (landmarks.noseBridge[1] + landmarks.noseTip[1]) * 0.5;
@@ -108,13 +112,17 @@ export function createMappedFace(shapes, reduce) {
     noseLight[i] = Math.max(0, 1 - nx * nx - ny * ny);
     for (let side = 0; side < 2; side++) {
       const eye = eyes[side], brow = brows[side];
-      if (Math.abs(u - eye[0]) < 0.044 && Math.abs(v - eye[1]) < 0.058) eyeMembers[side].push(i);
+      if (Math.abs(u - eye[0]) < 0.065 && Math.abs(v - eye[1]) < 0.085) eyeMembers[side].push(i);
       weights[k + 2 + side] = falloff(u - eye[0], 0.035, 0.102)
         * falloff(v - eye[1], 0.032, 0.082);
       const ix = (u - eye[0]) / 0.055, iy = (v - eye[1]) / 0.032;
       weights[k + 4 + side] = Math.pow(Math.max(0, 1 - ix * ix - iy * iy), 2);
       weights[k + 6 + side] = falloff(u - brow[0], 0.075, 0.155)
         * falloff(v - brow[1], 0.025, 0.092);
+      // A soft shadow ring leaves the photographed lids and iris untouched.
+      const socket = falloff(u - eye[0], 0.052, 0.105) * falloff(v - eye[1], 0.035, 0.08);
+      const aperture = falloff(u - eye[0], 0.042, 0.073) * falloff(v - eye[1], 0.027, 0.052);
+      socketLight[i] = Math.max(socketLight[i], socket * (1 - aperture));
     }
   }
   const eyeParticles = eyeMembers.map(indices => Int32Array.from(indices));
@@ -122,6 +130,7 @@ export function createMappedFace(shapes, reduce) {
   let definition = 1, brightnessFloor = 0.025, faceDensity = 1;
   let depthAmount = 1.6, mouthWarpStrength = 1, sparkle = 0.15;
   let eyeGlow = 1, lipProminence = 1;
+  let irisRound = 0.8, irisSoftness = 0.5, irisWarmth = 0.5, socketLift = 0.3;
   let messiness = 0.7, breathAmount = 1;
   function applyTuning(tuning) {
     definition = tuning.definition ?? definition;
@@ -131,9 +140,30 @@ export function createMappedFace(shapes, reduce) {
     mouthWarpStrength = tuning.mouthWarpStrength ?? mouthWarpStrength;
     sparkle = tuning.sparkle ?? sparkle;
     eyeGlow = tuning.eyeGlow ?? eyeGlow;
+    if (Number.isFinite(tuning.irisRound)) irisRound = clamp(tuning.irisRound, 0, 1);
+    if (Number.isFinite(tuning.irisSoftness)) irisSoftness = clamp(tuning.irisSoftness, 0, 1);
+    if (Number.isFinite(tuning.irisWarmth)) irisWarmth = clamp(tuning.irisWarmth, 0, 1);
+    if (Number.isFinite(tuning.socketLift)) socketLift = clamp(tuning.socketLift, 0, 1);
     lipProminence = tuning.lipProminence ?? lipProminence;
     messiness = tuning.messiness ?? messiness;
     breathAmount = Math.max(0, tuning.breath ?? breathAmount);
+  }
+
+  // The sculpted aperture keeps at least 0.0208 of plate height between lids
+  // before the existing blink closes it. Positive upperLid means heavier;
+  // positive slant lifts outer corners. This buffer is reused by both passes.
+  function readEyePose(expression) {
+    const upper = clamp(expression.upperLid ?? 0, -1, 1);
+    const lower = clamp(expression.lowerLid ?? 0, 0, 1);
+    const slant = clamp(expression.slant ?? 0, -1, 1);
+    const asym = clamp(expression.eyeAsym ?? 0, -1, 1);
+    for (let side = 0; side < 2; side++) {
+      const p = side * 5, angle = slant * (side === 0 ? 1 : -1) * Math.PI / 20;
+      eyePose[p] = angle;
+      eyePose[p + 2] = upper * 0.010 + asym * (side === 0 ? -0.005 : 0.005);
+      eyePose[p + 3] = lower * 0.012;
+      eyePose[p + 4] = Math.max(Math.abs(upper), lower, Math.abs(slant), Math.abs(asym));
+    }
   }
 
   function updateWarp(expression, gaze, blink, envelope, shape) {
@@ -142,6 +172,7 @@ export function createMappedFace(shapes, reduce) {
       + expression.smile * 0.05, 0.58, 1.3);
     const lipPress = 1 / (1 - shape.close * 0.18 * Math.min(mouthWarpStrength, 1.5)) - 1;
     const eyeOpen = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
+    const browKnit = clamp(expression.browKnit ?? 0, -1, 1);
     const roundDepth = shape.round * mouthWarpStrength * 0.15;
     for (let i = 0; i < count; i++) {
       const j = i * 3, k = i * 8;
@@ -214,6 +245,46 @@ export function createMappedFace(shapes, reduce) {
           sv += (lift + expression.tilt * (u - brows[side][0]) / 0.15) / MAP_SCALE * browWeight;
         }
       }
+
+      // Compose sculpting after the intact legacy map. Each local map below
+      // preserves orientation, so existing brow/blink shoulders cannot combine
+      // additively with a new control to create a fold in the plate.
+      const beforeU = su, beforeV = sv;
+      if (eyePose[4] !== 0) for (let side = 0; side < 2; side++) {
+        const eye = eyes[side], p = side * 5;
+        let dx = su - eye[0], dy = sv - eye[1];
+        if (Math.abs(dx) >= 0.135 || Math.abs(dy) >= 0.16) continue;
+        if (eyePose[p] !== 0 && Math.abs(dx) < 0.135 && Math.abs(dy) < 0.135) {
+          // A radial twist has determinant one, including its soft shoulder.
+          const radius = Math.hypot(dx, dy);
+          const angle = eyePose[p] * falloff(radius, 0.065, 0.135);
+          const cosine = Math.cos(angle), sine = Math.sin(angle);
+          su = eye[0] + dx * cosine + dy * sine;
+          sv = eye[1] - dx * sine + dy * cosine;
+        }
+        const bow = falloff(su - eye[0], 0.026, 0.078);
+        if (bow > 0 && (eyePose[p + 2] !== 0 || eyePose[p + 3] !== 0)) {
+          const upper = lids[side], lower = lowerLids[side];
+          const top = upper + eyePose[p + 2] * bow;
+          const bottom = lower - eyePose[p + 3] * bow;
+          if (sv <= top) {
+            sv += (upper - top) * falloff(sv - top, 0.02, 0.105);
+          } else if (sv < bottom) {
+            sv = upper + (sv - top) / (bottom - top) * (lower - upper);
+          } else {
+            sv += (lower - bottom) * falloff(sv - bottom, 0.02, 0.105);
+          }
+        }
+      }
+      if (browKnit !== 0) for (let side = 0; side < 2; side++) {
+        const inner = innerBrows[side];
+        const knitWeight = falloff(su - inner[0], 0.015, 0.075)
+          * falloff(sv - inner[1], 0.012, 0.062);
+        // |a dot grad(weight)| <= .61, hence this map's determinant >= .39.
+        su -= Math.max(0, browKnit) * (side === 0 ? 0.010 : -0.010) * knitWeight;
+        sv -= browKnit * 0.012 * knitWeight;
+      }
+      eyeSculpt[i * 2] = su - beforeU; eyeSculpt[i * 2 + 1] = sv - beforeV;
 
       const f = i * 5;
       samplePositions[i * 2] = su; samplePositions[i * 2 + 1] = sv;
@@ -297,10 +368,16 @@ export function createMappedFace(shapes, reduce) {
         + irisAmber + catchlight) * density;
       FACE_COL[j + 1] = (floorTint[1] * floor * (1 - cavity * 0.68)
         + tintG * light * (1 - floor) + paletteG * glimmer
-        + irisAmber * 0.46 + catchlight * 0.95) * density;
+        + irisAmber * (0.46 + irisWarmth * 0.16) + catchlight * 0.95) * density;
       FACE_COL[j + 2] = (floorTint[2] * floor * (1 - cavity * 0.68)
         + tintB * light * (1 - floor) + paletteB * glimmer
-        + irisAmber * 0.085 + catchlight * 0.78) * density;
+        + irisAmber * (0.085 + irisWarmth * 0.215) + catchlight * 0.78) * density;
+      if (socketLift > 0 && socketLight[i] > 0) {
+        const lift = socketLift * socketLight[i] * smooth((0.20 - luma) / 0.20) * 0.075 * density;
+        FACE_COL[j] += lift;
+        FACE_COL[j + 1] += lift * 0.62;
+        FACE_COL[j + 2] += lift * 0.30;
+      }
     }
   }
 
@@ -311,6 +388,7 @@ export function createMappedFace(shapes, reduce) {
     const open = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
     const visible = clamp((open - 0.015) / 0.985, 0, 1);
     for (let side = 0; side < 2; side++) {
+      const p = side * 5;
       const centreU = eyes[side][0] + gaze.x * 0.006 * open;
       const centreV = lowerLids[side] - (lowerLids[side] - eyes[side][1]) * open
         - gaze.y * 0.004 * open;
@@ -320,21 +398,41 @@ export function createMappedFace(shapes, reduce) {
       const members = eyeParticles[side];
       for (let n = 0; n < members.length; n++) {
         const i = members[n], j = i * 3;
-        const dx = UV[i * 2] - centreU, dy = UV[i * 2 + 1] - centreV;
-        const cx = dx / 0.011, cy = dy / coreHeight;
-        const hx = dx / 0.029, hy = dy / haloHeight;
+        // Apply only the added sculpt displacement to the old glow frame;
+        // infinitesimal slider changes therefore retain the same glow anchor.
+        const dx = UV[i * 2] - centreU + eyeSculpt[i * 2];
+        const dy = UV[i * 2 + 1] - centreV + eyeSculpt[i * 2 + 1] * open;
+        const localV = UV[i * 2 + 1] + eyeSculpt[i * 2 + 1] * open;
+        const lower = lowerLids[side], upper = lids[side];
+        const coreWidth = 0.011 * (1 + irisSoftness * 0.4);
+        const haloWidth = 0.029 * (1 + irisSoftness * 0.3);
+        const shapedCoreHeight = coreHeight, shapedHaloHeight = haloHeight;
+        const roundCoreHeight = (shapedCoreHeight + (0.011 - shapedCoreHeight) * irisRound) * (1 + irisSoftness * 0.4);
+        const roundHaloHeight = (shapedHaloHeight + (0.029 - shapedHaloHeight) * irisRound) * (1 + irisSoftness * 0.3);
+        const cx = dx / coreWidth, cy = dy / roundCoreHeight;
+        const hx = dx / haloWidth, hy = dy / roundHaloHeight;
         const sx = (dx + 0.0045) / 0.0042, sy = (dy + 0.0038 * open) / catchHeight;
         const core = Math.max(0, 1 - cx * cx - cy * cy);
         const halo = Math.max(0, 1 - hx * hx - hy * hy);
         const glint = Math.max(0, 1 - sx * sx - sy * sy);
-        irisLight[j] = core * core * visible;
-        irisLight[j + 1] = halo * halo * visible;
-        irisLight[j + 2] = glint * glint * visible;
+        // A circular halo may meet a lid before its radial falloff finishes.
+        // Clip it at that aperture, while preserving all-zero legacy light.
+        let crop = 1;
+        if (irisRound !== 0 || irisSoftness !== 0 || eyePose[p + 4] !== 0) {
+          const top = lower - (lower - upper) * open;
+          const feather = Math.min(0.004, Math.max(0.0002, (lower - top) * 0.15));
+          const lidCrop = smooth((localV - top) / feather) * smooth((lower - localV) / feather);
+          crop += (lidCrop - 1) * Math.max(irisRound, irisSoftness, eyePose[p + 4]);
+        }
+        irisLight[j] = core * core * visible * (1 - irisSoftness * 0.3) * crop;
+        irisLight[j + 1] = halo * halo * visible * crop;
+        irisLight[j + 2] = glint * glint * visible * (1 - irisSoftness * 0.3) * crop;
       }
     }
   }
 
   function update(clock, expression, gaze, blink, envelope, shape) {
+    readEyePose(expression);
     updateWarp(expression, gaze, blink, envelope, shape);
     updateIrisLight(expression, gaze, blink);
     updateColours(clock);

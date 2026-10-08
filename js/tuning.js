@@ -1,3 +1,5 @@
+import { EXPR, EYE_SHAPE_KEYS } from './face.js';
+
 const CONTROLS = [
   ['definition', 'Definition', 0, 1, 0.01],
   ['brightnessFloor', 'Brightness floor', 0, 0.35, 0.005],
@@ -52,6 +54,18 @@ const HEAD_CONTROLS = [
   ['blinkRate', 'Blinks per minute', 0, 30, 1],
 ];
 
+const EYE_CONTROLS = [
+  ['irisRound', 'Iris roundness', 0, 1, 0.01],
+  ['irisSoftness', 'Iris softness', 0, 1, 0.01],
+  ['irisWarmth', 'Iris warmth', 0, 1, 0.01],
+  ['socketLift', 'Socket lift', 0, 1, 0.01],
+  ['upperLid', 'Upper lid', -1, 1, 0.01],
+  ['lowerLid', 'Lower lid', 0, 1, 0.01],
+  ['slant', 'Slant', -1, 1, 0.01],
+  ['browKnit', 'Brow knit', -1, 1, 0.01],
+  ['eyeAsym', 'Eye asymmetry', -1, 1, 0.01],
+];
+
 export function createTuningPanel(tuning, onChange, speechLab) {
   const panel = document.createElement('details');
   panel.className = 'tuning';
@@ -85,6 +99,12 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   }, speechLab?.references));
 
   content.append(createHeadEyes(tuning, key => {
+    refreshJSON();
+    status.textContent = '';
+    onChange(tuning, key);
+  }));
+
+  content.append(createEyes(tuning, key => {
     refreshJSON();
     status.textContent = '';
     onChange(tuning, key);
@@ -143,6 +163,99 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   panel.append(content);
   document.body.append(panel);
   return panel;
+}
+
+function createEyes(tuning, onChange) {
+  const group = document.createElement('div');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Eyes');
+  const heading = document.createElement('div');
+  heading.textContent = 'Eyes';
+  heading.setAttribute('role', 'heading');
+  heading.setAttribute('aria-level', '3');
+  group.append(heading);
+
+  const names = Object.keys(EXPR);
+  const shapeKeys = new Set(EYE_SHAPE_KEYS);
+  const expressionButtons = Array.from(document.querySelectorAll('[data-expr]'));
+  const activeExpression = () => expressionButtons.find(button =>
+    button.getAttribute('aria-pressed') === 'true')?.dataset.expr;
+  tuning.eyePoses = Object.fromEntries(names.map(name =>
+    [name, { ...EXPR[name], ...tuning.eyePoses?.[name] }]));
+  const controls = new Map(), poseButtons = new Map();
+
+  function selectPose(name) {
+    if (!names.includes(name)) return;
+    tuning.eyePose = name;
+    for (const key of EYE_SHAPE_KEYS) {
+      const control = controls.get(key);
+      tuning[key] = tuning.eyePoses[name][key];
+      if (control) {
+        control.input.value = tuning[key];
+        control.value.value = control.input.value;
+      }
+    }
+    for (const [pose, button] of poseButtons) {
+      button.setAttribute('aria-pressed', String(pose === name));
+    }
+    onChange('eyePose');
+  }
+
+  const poses = document.createElement('div');
+  poses.className = 'row tuning-footer';
+  poses.setAttribute('role', 'group');
+  poses.setAttribute('aria-label', 'Eye poses');
+  for (const name of names) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    button.setAttribute('aria-label', `Eye pose ${name}`);
+    button.addEventListener('click', () => {
+      expressionButtons.find(expression => expression.dataset.expr === name)?.click();
+      selectPose(name);
+    });
+    poseButtons.set(name, button);
+    poses.append(button);
+  }
+  group.append(poses);
+
+  for (const [key, labelText, min, max, step] of EYE_CONTROLS) {
+    const label = document.createElement('label');
+    label.className = 'tuning-control';
+    const name = document.createElement('span');
+    name.textContent = labelText;
+    const value = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `tuning-${key}`;
+    input.min = min;
+    input.max = max;
+    input.step = step;
+    input.value = tuning[key];
+    value.htmlFor = input.id;
+    value.value = input.value;
+    input.addEventListener('input', () => {
+      tuning[key] = Number(input.value);
+      if (shapeKeys.has(key)) tuning.eyePoses[tuning.eyePose][key] = tuning[key];
+      value.value = input.value;
+      onChange(key);
+    });
+    controls.set(key, { input, value });
+    label.append(name, value, input);
+    group.append(label);
+  }
+
+  // Sequences and the original expression buttons share these same pose edits.
+  // The extra buttons deliberately do not join main.js's data-expr controls.
+  const observer = new MutationObserver(() => {
+    const name = activeExpression();
+    if (name && name !== tuning.eyePose) selectPose(name);
+  });
+  for (const button of expressionButtons) {
+    observer.observe(button, { attributes: true, attributeFilter: ['aria-pressed'] });
+  }
+  selectPose(activeExpression() || tuning.eyePose || 'neutral');
+  return group;
 }
 
 function createHeadEyes(tuning, onChange) {

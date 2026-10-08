@@ -2,11 +2,16 @@ import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 
-const EXPR = {
-  neutral:  { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1, gx: null, gy: null },
-  warm:     { smile: 0.55, browL: 0.08, browR: 0.08, tilt: 0, eye: 0.78, gx: null, gy: null },
-  curious:  { smile: 0.12, browL: 0.34, browR: -0.02, tilt: 0.1, eye: 1.08, gx: null, gy: null },
-  thinking: { smile: -0.12, browL: -0.08, browR: 0.2, tilt: -0.08, eye: 0.9, gx: -1, gy: 1 }
+export const EYE_SHAPE_KEYS = ['upperLid', 'lowerLid', 'slant', 'browKnit', 'eyeAsym'];
+export const EXPR = {
+  neutral:  { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1, gx: null, gy: null,
+    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
+  warm:     { smile: 0.55, browL: 0.08, browR: 0.08, tilt: 0, eye: 0.78, gx: null, gy: null,
+    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
+  curious:  { smile: 0.12, browL: 0.34, browR: -0.02, tilt: 0.1, eye: 1.08, gx: null, gy: null,
+    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
+  thinking: { smile: -0.12, browL: -0.08, browR: 0.2, tilt: -0.08, eye: 0.9, gx: -1, gy: 1,
+    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 }
 };
 
 function lerp(a, b, k) {
@@ -14,7 +19,10 @@ function lerp(a, b, k) {
 }
 
 export function createFace(shapes, reduce) {
-  const cur = { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1 };
+  const cur = { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1,
+    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 };
+  const eyePoses = Object.fromEntries(Object.entries(EXPR).map(([name, pose]) => [name, { ...pose }]));
+  let currentExpression = 'neutral';
   const gaze = { x: 0, y: 0 };
   const fixedGaze = { x: 0, y: 0, mix: 0 };
   let blinkAge = Infinity, blinkV = 1;
@@ -27,11 +35,13 @@ export function createFace(shapes, reduce) {
 
   function update(dt, clock, exprName, envelope, shape, speaking = false) {
     const tgt = EXPR[exprName], k = 1 - Math.pow(0.04, dt);
+    currentExpression = exprName;
     cur.smile = lerp(cur.smile, tgt.smile, k);
     cur.browL = lerp(cur.browL, tgt.browL, k);
     cur.browR = lerp(cur.browR, tgt.browR, k);
     cur.tilt = lerp(cur.tilt, tgt.tilt, k);
     cur.eye = lerp(cur.eye, tgt.eye, k);
+    for (const key of EYE_SHAPE_KEYS) cur[key] = lerp(cur[key], eyePoses[exprName][key], k);
 
     const pose = head.update(dt, { speaking, envelope });
     // Head gaze is already spring-smoothed; only the expression override needs
@@ -51,6 +61,18 @@ export function createFace(shapes, reduce) {
   }
 
   return { update, applyTuning(tuning) {
+    // Sculpted eye values belong to each pose; existing expression, speech,
+    // gaze and head controllers retain their original inputs and timing.
+    for (const name of Object.keys(eyePoses)) {
+      const values = tuning.eyePoses?.[name];
+      if (values) for (const key of EYE_SHAPE_KEYS) if (Number.isFinite(values[key])) {
+        eyePoses[name][key] = Math.max(key === 'lowerLid' ? 0 : -1, Math.min(1, values[key]));
+      }
+    }
+    const editPose = eyePoses[tuning.eyePose ?? currentExpression];
+    if (editPose) for (const key of EYE_SHAPE_KEYS) if (Number.isFinite(tuning[key])) {
+      editPose[key] = Math.max(key === 'lowerLid' ? 0 : -1, Math.min(1, tuning[key]));
+    }
     mappedFace.applyTuning(tuning);
     motion.applyTuning(tuning);
     head.applyTuning(tuning);
