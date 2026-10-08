@@ -33,6 +33,14 @@ const CONTROLS = [
   ['driftAmount', 'Nebula drift', 0, 2, 0.01],
 ];
 
+const FLANGER_CONTROLS = [
+  ['flangerRate', 'Rate (Hz)', 0.01, 5, 0.001],
+  ['flangerBaseDelay', 'Base delay (ms)', 0.1, 20, 0.01],
+  ['flangerDepth', 'Depth (ms)', 0, 20, 0.01],
+  ['flangerFeedback', 'Feedback', -0.95, 0.95, 0.01],
+  ['flangerMix', 'Mix', 0, 1, 0.01],
+];
+
 export function createTuningPanel(tuning, onChange, speechLab) {
   const panel = document.createElement('details');
   panel.className = 'tuning';
@@ -58,6 +66,12 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   status.className = 'tuning-status';
   status.setAttribute('role', 'status');
   let statusTimeout;
+
+  content.append(createVoiceEffect(tuning, key => {
+    refreshJSON();
+    status.textContent = '';
+    onChange(tuning, key);
+  }, speechLab?.references));
 
   for (const [key, labelText, min, max, step] of CONTROLS) {
     const label = document.createElement('label');
@@ -112,6 +126,93 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   panel.append(content);
   document.body.append(panel);
   return panel;
+}
+
+function createVoiceEffect(tuning, onChange, references) {
+  const group = document.createElement('div');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Voice effect');
+  const heading = document.createElement('div');
+  heading.textContent = 'Voice effect';
+  heading.setAttribute('role', 'heading');
+  heading.setAttribute('aria-level', '3');
+  group.append(heading);
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'tuning-footer';
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.id = 'tuning-flangerOn';
+  toggle.checked = tuning.flangerOn;
+  const toggleText = document.createElement('span');
+  toggleText.textContent = 'Flanger on';
+  toggle.addEventListener('input', () => {
+    tuning.flangerOn = toggle.checked;
+    onChange('flangerOn');
+  });
+  toggleLabel.append(toggle, toggleText);
+  group.append(toggleLabel);
+
+  for (const [key, labelText, min, max, step] of FLANGER_CONTROLS) {
+    const label = document.createElement('label');
+    label.className = 'tuning-control';
+    const name = document.createElement('span');
+    name.textContent = labelText;
+    const value = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `tuning-${key}`;
+    input.min = min;
+    input.max = max;
+    input.step = step;
+    input.value = tuning[key];
+    value.htmlFor = input.id;
+    value.value = input.value;
+    input.addEventListener('input', () => {
+      tuning[key] = Number(input.value);
+      value.value = input.value;
+      onChange(key);
+    });
+    label.append(name, value, input);
+    group.append(label);
+  }
+
+  const status = document.createElement('span');
+  status.className = 'tuning-status';
+  status.setAttribute('role', 'status');
+  let playbackRequest = 0;
+  const buttons = [
+    ['dry', 'Dry reference'],
+    ['logic', 'Logic reference'],
+    ['browser', 'Browser flanger'],
+  ].map(([kind, text]) => {
+    const row = document.createElement('div');
+    row.className = 'tuning-footer';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = text;
+    button.disabled = true;
+    button.addEventListener('click', async () => {
+      const request = ++playbackRequest;
+      status.textContent = 'Loading / playing…';
+      try {
+        await references.play(kind);
+        if (request === playbackRequest) status.textContent = 'Ready';
+      } catch {
+        if (request === playbackRequest) status.textContent = 'Reference unavailable.';
+      }
+    });
+    row.append(button);
+    group.append(row);
+    return button;
+  });
+  group.append(status);
+  if (references) {
+    Promise.resolve().then(() => references.load()).then(available => {
+      for (const button of buttons) button.disabled = !available;
+    }).catch(() => { /* Local reference clips are optional. */ });
+  }
+  return group;
 }
 
 function createSpeechLab(speechLab) {

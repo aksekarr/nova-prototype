@@ -7,8 +7,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createGas } from './gas.js';
 import { createStars } from './stars.js';
 import { sampleScalar } from './facesample.js';
+import { FLANGER_DEFAULTS, setFlangerTuning } from './flanger.js';
 
 const TUNING = {
+  ...FLANGER_DEFAULTS,
   trailStrength: 0.72,
   bloomStrength: 0.45,
   bloomRadius: 0.35,
@@ -194,6 +196,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   composer.addPass(new OutputPass());
 
   function applyTuning() {
+    setFlangerTuning(TUNING);
     bloom.strength = TUNING.bloomStrength;
     bloom.radius = TUNING.bloomRadius;
     bloom.threshold = TUNING.bloomThreshold;
@@ -210,7 +213,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   }
   applyTuning();
   if (new URLSearchParams(window.location.search).get('tune') === '1') {
-    import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING, applyTuning, speechLab));
+    import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING,
+      (_, key) => key?.startsWith('flanger') ? setFlangerTuning(TUNING) : applyTuning(), speechLab));
   }
 
   function resize() {

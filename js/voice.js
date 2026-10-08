@@ -1,3 +1,5 @@
+import { createVoiceEffect, stopReferenceClip } from './flanger.js';
+
 const ENVELOPE_HZ = 60;
 const RMS_WINDOW_SECONDS = 0.016;
 const SHAPE_LOOKAHEAD_SECONDS = 0.03;
@@ -94,6 +96,7 @@ export function createVoice({ caption, readout }) {
   const lines = new Map();
   let ac = null;
   let gainNode = null;
+  let effect = null;
   let speech = null;
   let soundOn = true;
   let envelope = 0;
@@ -122,11 +125,12 @@ export function createVoice({ caption, readout }) {
         gainNode = ac.createGain();
         gainNode.gain.value = soundOn ? 1 : 0;
         gainNode.connect(ac.destination);
+        effect = createVoiceEffect(ac, gainNode);
       }
-      await Promise.all(ids.map((id) => {
+      await Promise.all([effect.ready, ...ids.map((id) => {
         if (!lines.has(id)) lines.set(id, loadLine(id));
         return lines.get(id);
-      }));
+      })]);
       idleStatus = 'Silent';
     } catch (error) {
       idleStatus = 'Voice unavailable';
@@ -173,7 +177,7 @@ export function createVoice({ caption, readout }) {
       speech = line;
       const loaded = lines.get(id);
       if (!loaded) { finish(line); return; }
-      loaded.then((data) => {
+      Promise.all([loaded, effect.ready]).then(([data]) => {
         if (speech !== line) return;
         caption.className = 'caption';
         caption.textContent = '';
@@ -190,9 +194,10 @@ export function createVoice({ caption, readout }) {
         line.shapeIndex = -1;
         line.source = ac.createBufferSource();
         line.source.buffer = data.buffer;
-        line.source.connect(gainNode);
+        line.source.connect(effect.input);
         line.source.onended = () => finish(line);
         line.startedAt = ac.currentTime;
+        effect.reset();
         line.source.start(line.startedAt);
         showStatus('Speaking');
         update(0);
@@ -204,6 +209,7 @@ export function createVoice({ caption, readout }) {
   }
 
   function stop() {
+    stopReferenceClip();
     if (speech) finish(speech);
   }
 

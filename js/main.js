@@ -3,6 +3,7 @@ import { createFace } from './face.js';
 import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 import { loadFaceMap } from './facemap.js';
+import { loadReferenceClips, playReferenceClip, stopReferenceClip } from './flanger.js';
 
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const params = new URLSearchParams(window.location.search);
@@ -72,7 +73,13 @@ if (!faceMaps) restCaption(FACE_UNAVAILABLE);
 
 startStage({
   shapes, reduce, state,
-  speechLab: { play: playLabLine },
+  speechLab: {
+    play: playLabLine,
+    references: {
+      load: loadReferenceClips,
+      play(kind) { stopAll(); return playReferenceClip(kind); }
+    }
+  },
   applyFaceTuning: face.applyTuning,
   onFrame: dt => voice.update(dt),
   updateFace: (dt, clock) => {
@@ -106,6 +113,7 @@ async function playLabLine(lineId) {
   await speakLine(lineId);
 }
 async function runSequence() {
+  stopReferenceClip();
   const id = ++seqId; function alive() { return id === seqId; }
   setExpr('neutral'); if (!setMode('face')) return; restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
