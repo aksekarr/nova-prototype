@@ -10,7 +10,6 @@ URL options:
 
 - `?tune=1`: tuning panel and Speech lab (plays the pre-generated lines). Tuning resets on reload; tuned values are baked into `js/stage.js`.
 - `?n=…`: particle count, 4,000 to 64,000.
-- `?face=v1` / `?face=v2`: earlier face designs, kept for comparison only.
 
 ## Other pages
 

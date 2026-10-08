@@ -14,8 +14,6 @@ const CONTROLS = [
   ['sparkle', 'Sparkle', 0, 0.15, 0.001],
   ['lipProminence', 'Lip prominence', 0.25, 2, 0.01],
   ['eyeGlow', 'Eye glow', 0, 2, 0.01],
-  ['rimStrength', 'Rim strength', 0, 2, 0.01],
-  ['interiorDensity', 'Interior density', 0, 1, 0.01],
   ['dissolveAmount', 'Dissolve amount', 0, 2, 0.01],
   ['trailStrength', 'Trail strength', 0, 0.9, 0.01],
   ['bloomStrength', 'Bloom strength', 0, 2, 0.01],
@@ -32,12 +30,10 @@ const CONTROLS = [
   ['glintStrength', 'Glint strength', 0, 2, 0.01],
   ['faceFrame', 'Face frame', 0.25, 0.8, 0.001],
   ['shapeFrame', 'Shape frame', 0.35, 0.85, 0.01],
-  ['driftAmount', 'Drift amount', 0, 2, 0.01],
+  ['driftAmount', 'Nebula drift', 0, 2, 0.01],
 ];
-const MAP_CONTROLS = new Set(['definition', 'brightnessFloor', 'faceDensity', 'messiness', 'faceDrift', 'edgeFlowSpeed', 'breath', 'filamentAmount', 'starSizeSpread', 'gasWrap', 'depthAmount', 'mouthWarpStrength', 'sparkle']);
-const LEGACY_CONTROLS = new Set(['rimStrength', 'interiorDensity']);
 
-export function createTuningPanel(tuning, onChange, speechLab, faceVersion = 'v2') {
+export function createTuningPanel(tuning, onChange, speechLab) {
   const panel = document.createElement('details');
   panel.className = 'tuning';
   panel.open = !window.matchMedia('(max-width: 560px)').matches;
@@ -64,11 +60,10 @@ export function createTuningPanel(tuning, onChange, speechLab, faceVersion = 'v2
   let statusTimeout;
 
   for (const [key, labelText, min, max, step] of CONTROLS) {
-    if (faceVersion === 'v3' ? LEGACY_CONTROLS.has(key) : MAP_CONTROLS.has(key)) continue;
     const label = document.createElement('label');
     label.className = 'tuning-control';
     const name = document.createElement('span');
-    name.textContent = faceVersion === 'v3' && key === 'driftAmount' ? 'Nebula drift' : labelText;
+    name.textContent = labelText;
     const value = document.createElement('output');
     const input = document.createElement('input');
     input.type = 'range';

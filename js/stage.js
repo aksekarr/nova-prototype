@@ -27,8 +27,6 @@ const TUNING = {
   driftAmount: 1,
   lipProminence: 0.47,
   eyeGlow: 1,
-  rimStrength: 1,
-  interiorDensity: 1,
   dissolveAmount: 1,
   definition: 1,
   brightnessFloor: 0.025,
@@ -47,8 +45,8 @@ const TUNING = {
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
 export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab }) {
-  const { N, FEATURE_END, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
-  const mapFace = shapes.version === 'v3';
+  const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
+  const hasFace = Boolean(shapes.MAPS);
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
   // r128 wrote linear colours directly; keep that output and the same clear colour.
@@ -59,16 +57,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   let baseZ = 16;
   const slope = Math.tan(camera.fov * Math.PI / 360);
-  // Calibrate against the old camera, independently for the two particle counts.
-  // Keep these samples fixed so expressions and the orbiting halo cannot cause
-  // the face camera to breathe. Its existing rotation remains untouched.
   updateFace(0, state.clock);
-  const faceSamples = new Float32Array(mapFace ? shapes.BASE : FACE);
-  let legacyFaceFrame = 0;
-  for (let j = 0; j < faceSamples.length; j += 3) {
-    legacyFaceFrame = Math.max(legacyFaceFrame, Math.abs(faceSamples[j + 1]) / ((16 - faceSamples[j + 2]) * slope));
-  }
-  if (!mapFace) TUNING.faceFrame = Math.round(legacyFaceFrame * 1000) / 1000;
+  const faceSamples = hasFace ? new Float32Array(shapes.BASE) : null;
   const gas = createGas(scene);
   const stars = createStars(scene);
 
@@ -86,7 +76,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   const clearCenter = new THREE.Vector2(0.5, 0.5);
   const clearExtent = new THREE.Vector2(0.1, 0.2);
   const featureClearance = Array.from({ length: 4 }, () => new THREE.Vector4());
-  const featurePositions = mapFace ? [
+  const featurePositions = hasFace ? [
     [...shapes.MAPS.landmarks.eyeL, 0.066, 0.026],
     [...shapes.MAPS.landmarks.eyeR, 0.066, 0.026],
     [shapes.MAPS.landmarks.noseBridge[0], 0.444, 0.032, 0.109],
@@ -220,7 +210,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   }
   applyTuning();
   if (new URLSearchParams(window.location.search).get('tune') === '1') {
-    import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING, applyTuning, speechLab, shapes.version));
+    import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING, applyTuning, speechLab));
   }
 
   function resize() {
@@ -285,7 +275,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     camera.updateMatrixWorld();
     points.updateMatrixWorld();
     clipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(points.matrixWorld);
-    if (mapFace && state.mode === 'face') {
+    if (state.mode === 'face') {
       // Only these small feature islands exclude gas. The temples, cheeks and
       // fraying silhouette remain part of the surrounding cosmic field.
       for (let i = 0; i < featurePositions.length; i++) {
@@ -355,7 +345,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   }
 
   function fitMapFace() {
-    if (!mapFace) return;
+    if (!hasFace) return;
     const heightSlope = slope * TUNING.faceFrame;
     const widthSlope = slope * camera.aspect * 0.92;
     const widthGuard = Math.sqrt(1 + 1 / (widthSlope * widthSlope));
@@ -387,19 +377,16 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const fastColourRate = 1 - Math.exp(-dt / 0.018);
     const settledPositionRate = 1 - Math.pow(0.55, f60);
     const targetCol = mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
-    const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? (mapFace ? 0.25 + TUNING.gasWrap * 0.9 : 0.25) : 0.5;
+    const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? 0.25 + TUNING.gasWrap * 0.9 : 0.5;
     const targetNebula = mode === 'nebula' ? 1 : 0;
-    const recycled = mapFace && mode === 'face' && clock - modeT > 3.5 ? shapes.RECYCLED : null;
+    const recycled = mode === 'face' && clock - modeT > 3.5 ? shapes.RECYCLED : null;
     let gasSum = 0, nebulaSum = 0, fitHeight = 0, fitWidth = 0;
     const frameHeight = mode === 'face' ? TUNING.faceFrame : TUNING.shapeFrame;
     const heightSlope = slope * frameHeight;
-    // The face's spherical guard already includes its full orbiting halo;
-    // a little less padding preserves the legacy portrait face size.
-    const widthSlope = slope * camera.aspect * (mode === 'face' ? 0.92 : 0.86);
+    const widthSlope = slope * camera.aspect * 0.86;
     const widthGuard = Math.sqrt(1 + 1 / (widthSlope * widthSlope));
 
-    const wantY = mode === 'face'
-      ? (shapes.version === 'v2' || mapFace ? 0 : 0.12 * Math.sin(clock * 0.4)) + mouse.x * 0.22 : 0;
+    const wantY = mode === 'face' ? mouse.x * 0.22 : 0;
     rotY += (wantY - rotY) * Math.min(1, dt * 2);
     points.rotation.y = rotY;
     points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);
@@ -415,19 +402,14 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         tx = bx * cT - bz * sT; tz = bx * sT + bz * cT;
         ty = by + Math.sin(t2 + PH[i]) * shimmer;
       } else {
-        tx = FACE[j]; ty = FACE[j + 1] + (mapFace ? 0 : Math.sin(t2 + PH[i]) * shimmer); tz = FACE[j + 2];
+        tx = FACE[j]; ty = FACE[j + 1]; tz = FACE[j + 2];
       }
-      if (mode !== 'nebula' && !(mapFace && mode === 'face')) {
-        const fx = mode === 'face' ? faceSamples[j] : tx;
-        const fy = mode === 'face' ? faceSamples[j + 1] : ty;
-        const fz = mode === 'face' ? (mapFace ? (shapes.MAP_DEPTH[i] - 0.5) * TUNING.depthAmount : faceSamples[j + 2]) : tz;
-        frameTargets[j] = fx; frameTargets[j + 1] = fy; frameTargets[j + 2] = fz;
-        const frameMember = !(mapFace && mode === 'face') || i < FEATURE_END;
-        if (frameMember) fitHeight = Math.max(fitHeight, fz + Math.abs(fy) / heightSlope);
+      if (mode === 'tree') {
+        frameTargets[j] = tx; frameTargets[j + 1] = ty; frameTargets[j + 2] = tz;
+        fitHeight = Math.max(fitHeight, tz + Math.abs(ty) / heightSlope);
         // Fit every orientation on narrow screens, without chasing the tree's
         // rotating width and clipping while the camera catches up.
-        const radius = mode === 'face' && !mapFace ? Math.hypot(fx, fy, fz) : Math.hypot(fx, fz);
-        if (frameMember) fitWidth = Math.max(fitWidth, radius * widthGuard);
+        fitWidth = Math.max(fitWidth, Math.hypot(tx, tz) * widthGuard);
       }
       let rate = RATE[i];
       if (i < FEATURE_END && ramp > 0) rate = rate + (0.45 - rate) * ramp;
@@ -445,7 +427,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       // The image resolves locally as each display particle reaches its tile.
       // Once formed, fast colour tracking preserves the voice and blink timing.
       let colourRate = k, light = 1;
-      if (mapFace && mode === 'face' && i < FEATURE_END) {
+      if (mode === 'face' && i < FEATURE_END) {
         const dx = tx - POS[j], dy = ty - POS[j + 1], dz = tz - POS[j + 2];
         const settled = 1 / (1 + (dx * dx + dy * dy + dz * dz) * 2.5);
         light = 0.08 + 0.92 * settled;
@@ -462,12 +444,12 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const nebulaProgress = nebulaSum / N;
     const nebulaMix = nebulaProgress < 0.0001 ? 0 : nebulaProgress > 0.9999 ? 1 : nebulaProgress;
     uniforms.nebulaGlints.value = nebulaMix;
-    uniforms.faceDisplayMix.value += ((mapFace && mode === 'face' ? 1 : 0) - uniforms.faceDisplayMix.value) * Math.min(1, dt * 3);
+    uniforms.faceDisplayMix.value += ((mode === 'face' ? 1 : 0) - uniforms.faceDisplayMix.value) * Math.min(1, dt * 3);
     geom.attributes.position.needsUpdate = true;
     geom.attributes.color.needsUpdate = true;
 
     if (mode !== 'nebula' && mode !== 'face') fitHeight = fitFormHeight(fitHeight, frameHeight);
-    const targetDepth = mode === 'nebula' ? baseZ : mapFace && mode === 'face' ? mapFitDepth : Math.max(4, fitHeight, fitWidth);
+    const targetDepth = mode === 'nebula' ? baseZ : mode === 'face' ? mapFitDepth : Math.max(4, fitHeight, fitWidth);
     let depthSum = 0;
     for (let i = 0; i < N; i++) {
       cameraDepth[i] += (targetDepth - cameraDepth[i]) * frameRates[i];
@@ -484,7 +466,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     if (formMix > 0.0001) projectClearance();
     stars.update(clock, reduce);
     gas.update(dt, clock * speed, aN, gasSum / N, formMix, nebulaMix, clearCenter, clearExtent,
-      mapFace && mode === 'face' ? uniforms.faceDisplayMix.value * Math.min(1, TUNING.gasWrap) : 0, featureClearance);
+      mode === 'face' ? uniforms.faceDisplayMix.value * Math.min(1, TUNING.gasWrap) : 0, featureClearance);
     gas.render(renderer);
     updateTrails(mode, elapsed);
     composer.render();

@@ -9,24 +9,19 @@ const params = new URLSearchParams(window.location.search);
 const requestedN = params.get('n');
 const parsedN = requestedN === null || requestedN.trim() === '' ? NaN : Number(requestedN);
 
-const requestedFace = params.get('face');
 let faceMaps = null;
-if (requestedFace !== 'v1' && requestedFace !== 'v2') {
-  try {
-    faceMaps = await loadFaceMap();
-  } catch (error) {
-    console.warn('Face maps could not be loaded; using face v2.', error);
-  }
+try {
+  faceMaps = await loadFaceMap();
+} catch (error) {
+  console.warn('Face maps could not be loaded.', error);
 }
 const defaultN = Math.min(window.innerWidth, window.innerHeight) < 600 ? 9000 : faceMaps ? 32000 : 16000;
 const N = Number.isFinite(parsedN) ? Math.max(4000, Math.min(64000, Math.round(parsedN))) : defaultN;
 document.getElementById('r-n').textContent = N.toLocaleString('en-GB');
 const designs = createShapes(N, faceMaps);
-const shapes = requestedFace === 'v1' ? designs : {
-  ...designs,
-  ...(faceMaps && designs.FACE_V3 ? designs.FACE_V3 : designs.FACE_V2)
-};
-const face = createFace(shapes, reduce);
+const shapes = { ...designs, ...designs.FACE_V3 };
+const face = designs.FACE_V3 ? createFace(shapes, reduce) : { update() {}, applyTuning() {} };
+const FACE_UNAVAILABLE = 'Face unavailable. Staying in nebula.';
 const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral', speaking: false };
 const el = {
   state: document.getElementById('r-state'), expr: document.getElementById('r-expr'),
@@ -48,7 +43,8 @@ voice.preload(['hello', 'intro', 'trees', 'tree', 'back', 'test']).then(() => {
 });
 
 function setMode(m) {
-  if (m === state.mode) return;
+  if (!faceMaps) { restCaption(FACE_UNAVAILABLE); return false; }
+  if (m === state.mode) return true;
   state.mode = m;
   state.modeT = state.clock;
   el.state.textContent = LABEL[m];
@@ -56,6 +52,7 @@ function setMode(m) {
     b.setAttribute('aria-pressed', String(b.dataset.mode === m));
   });
   el.wake.textContent = m === 'nebula' ? 'Wake Nova' : 'Dissolve';
+  return true;
 }
 
 function setExpr(n) {
@@ -70,6 +67,8 @@ function restCaption(text) {
   el.caption.className = 'caption rest';
   el.caption.textContent = text;
 }
+
+if (!faceMaps) restCaption(FACE_UNAVAILABLE);
 
 startStage({
   shapes, reduce, state,
@@ -98,7 +97,7 @@ async function playLabLine(lineId) {
   stopAll();
   const id = seqId;
   if (state.mode !== 'face') {
-    setMode('face');
+    if (!setMode('face')) return;
     restCaption('Forming…');
   }
   const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
@@ -108,7 +107,7 @@ async function playLabLine(lineId) {
 }
 async function runSequence() {
   const id = ++seqId; function alive() { return id === seqId; }
-  setExpr('neutral'); setMode('face'); restCaption('Forming…');
+  setExpr('neutral'); if (!setMode('face')) return; restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
   setExpr('warm'); await speakLine('hello'); if (!alive()) return;
   await sleep(350); if (!alive()) return;
@@ -131,7 +130,7 @@ el.wake.addEventListener('click', function () {
 });
 document.querySelectorAll('[data-mode]').forEach(function (b) {
   b.addEventListener('click', function () {
-    stopAll(); setMode(b.dataset.mode);
+    stopAll(); if (!setMode(b.dataset.mode)) return;
     restCaption(b.dataset.mode === 'nebula' ? 'At rest.' : b.dataset.mode === 'tree' ? 'Showing a tree.' : 'Listening.');
   });
 });
@@ -140,7 +139,7 @@ document.querySelectorAll('[data-expr]').forEach(function (b) {
 });
 el.line.addEventListener('click', async function () {
   stopAll(); const id = seqId;
-  if (state.mode !== 'face') { setMode('face'); restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
+  if (state.mode !== 'face') { if (!setMode('face')) return; restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
   speakLine('test');
 });
 el.sound.addEventListener('click', function () {
