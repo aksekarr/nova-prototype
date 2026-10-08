@@ -37,6 +37,12 @@ const TUNING = {
   poseIntensity: 0,
   autoExpressions: true,
   laughAmount: 1,
+  gestureAmount: 1,
+  gesture: {
+    anticipation: 0.08, compress: 0.12, hold: 0.1, release: 0.25, settle: 0.4,
+    amount: 0.04, chuckleScale: 0.75, widen: 0.5, overshoot: 0.2,
+    coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5
+  },
   moodAmount: 1,
   browFlashAmount: 1,
   microAmount: 1,

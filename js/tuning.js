@@ -45,6 +45,7 @@ const FLANGER_CONTROLS = [
 
 const HEAD_CONTROLS = [
   ['laughAmount', 'Laugh amount', 0, 2, 0.01],
+  ['gestureAmount', 'Gesture amount', 0, 2, 0.01],
   ['moodAmount', 'Mood amount', 0, 2, 0.01],
   ['browFlashAmount', 'Brow flash amount', 0, 2, 0.01],
   ['microAmount', 'Micro expression amount', 0, 2, 0.01],

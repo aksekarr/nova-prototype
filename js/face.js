@@ -79,11 +79,13 @@ export function createCueExpressions() {
   let output = blank(), channels = { mood: blank(), event: blank(), question: blank() };
   let eventRemaining = 0, questionRemaining = 0;
   let blockingEvent = false;
+  let gestureWindows = [];
   const mapCue = cue => cue.type === 'question' ? null : cueMap[cue.name];
   const valid = mapping => mapping && Object.hasOwn(EXPR, mapping.pose) && Number.isFinite(mapping.amount);
 
   function sample(position, cues) {
     blockingEvent = false;
+    gestureWindows = [];
     const mood = blank(), event = blank(), question = blank();
     const moods = cues.filter(cue => valid(mapCue(cue)) && mapCue(cue).kind === 'mood')
       .sort((a, b) => a.start - b.start);
@@ -142,6 +144,9 @@ export function createCueExpressions() {
       }
       knownEnds.set(id, end + recovery);
       if (position >= end + recovery) { retired.add(id); continue; }
+      if (!isQuestion && ['laugh', 'chuckle'].includes(mapping.kind)) {
+        gestureWindows.push({ id, kind: mapping.kind, start: cue.start, end: end + recovery });
+      }
       if (position < cue.start) continue;
       if (!isQuestion && ['laugh', 'chuckle', 'sigh'].includes(mapping.kind)) blockingEvent = true;
       const weight = phase(position - cue.start, attack) * (1 - phase(position - end, recovery));
@@ -202,6 +207,7 @@ export function createCueExpressions() {
 
   function update(dt, cues, ended) {
     blockingEvent = false;
+    gestureWindows = [];
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     if (cues && cues.replyId !== replyId) {
       // The outgoing state participates directly in the new reply's attack;
@@ -260,7 +266,7 @@ export function createCueExpressions() {
     replyId = null; lastPosition = 0; lastCues = []; release = bridge = null;
     retired.clear(); knownEnds.clear(); output = blank();
     channels = { mood: blank(), event: blank(), question: blank() };
-  }, get state() { return { replyId, position: lastPosition, output, retired: [...retired], releasing: Boolean(release), blockingEvent }; } };
+  }, get state() { return { replyId, position: lastPosition, output, retired: [...retired], releasing: Boolean(release), blockingEvent, gestureWindows }; } };
 }
 
 // This stream belongs only to flashes. Text is hashed at the playback boundary;
@@ -648,6 +654,7 @@ export function createFace(shapes, reduce) {
     mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
     motion.update(clock);
     follow.setSquashStretch(cur.squashStretch);
+    follow.updateGesture(step, cues, automaticEnabled, automatic.state.gestureWindows);
     follow.update(dt, pose);
     refreshSelection();
   }
@@ -732,6 +739,23 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     landmarks.noseBridge[1] - 0.01, landmarks.noseTip[1] + 0.035]);
   regions.push([landmarks.mouthLeft[0] - 0.015, landmarks.mouthRight[0] + 0.015,
     landmarks.upperLipTop[1] - 0.015, landmarks.lowerLipBottom[1] + 0.015]);
+  // A separate, broad spatial field drives the acting ripple. In particular,
+  // include every iris-light member, not just the narrower swarm protection.
+  const gestureRegions = regions.concat(['L', 'R'].map(side => {
+    const eye = landmarks['eye' + side];
+    return [eye[0] - 0.065, eye[0] + 0.065, eye[1] - 0.085, eye[1] + 0.085];
+  }));
+  const noseU = (landmarks.noseBridge[0] + landmarks.noseTip[0]) * 0.5;
+  const noseV = (landmarks.noseBridge[1] + landmarks.noseTip[1]) * 0.5;
+  gestureRegions.push([noseU - 0.055, noseU + 0.055, noseV - 0.16, noseV + 0.16]);
+  // Include the lip samples reached by the existing opening/smile warp.
+  gestureRegions.push([landmarks.mouthLeft[0] - 0.025, landmarks.mouthRight[0] + 0.025,
+    landmarks.upperLipTop[1] - 0.045, landmarks.lowerLipBottom[1] + 0.05]);
+  const gestureInner = new Float64Array(count), gestureEdge = new Float64Array(count);
+  const gestureDelay = new Float64Array(count), gestureValues = new Float64Array(count);
+  const gestureSource = new Float64Array(count), gestured = new Float32Array(BASE.length);
+  const centreU = (minX + maxX) * 0.5 / MAP_SCALE + 0.5;
+  const centreV = 0.5 - (minY + maxY) * 0.5 / MAP_SCALE;
   const individual = new Float32Array(count * 4), shared = new Float32Array(count * 4);
   const traits = new Float32Array(count * 4), attachment = new Float32Array(count);
   const offsets = new Uint16Array(count), blends = new Float32Array(count);
@@ -745,6 +769,16 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     for (const r of regions) distance = Math.min(distance,
       Math.hypot(Math.max(r[0] - u, 0, u - r[1]), Math.max(r[2] - v, 0, v - r[3])));
     free[i] = swarmSmooth(distance / 0.025);
+    let featureDistance = Infinity;
+    for (const r of gestureRegions) featureDistance = Math.min(featureDistance,
+      Math.hypot(Math.max(r[0] - u, 0, u - r[1]), Math.max(r[2] - v, 0, v - r[3])));
+    const radius = Math.hypot((u - centreU) * MAP_SCALE / (width * 0.5),
+      (v - centreV) * MAP_SCALE / (height * 0.5));
+    // A broad Gaussian falloff bounds the spatial delay gradient, including at
+    // the slider's doubled amplitude, without a sharp wavefront near the lids.
+    const featureDistanceWeight = 1 - Math.exp(-Math.pow(featureDistance / 0.16, 2));
+    gestureInner[i] = featureDistanceWeight * swarmSmooth(radius / 0.65);
+    gestureEdge[i] = featureDistanceWeight * swarmSmooth(radius);
     individual[k] = random();
     const angle = random() * Math.PI * 2, z = (random() * 2 - 1) * 0.15;
     const norm = Math.sqrt(1 + z * z);
@@ -767,6 +801,158 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   let initialized = false, cursor = 0, time = 0, sampledAt = 0, nextSample = STEP;
   let displayAmount = 0, lastCoherence = -1, angularSpeed = 0;
   const diagnostics = { angularSpeed: 0, deviationScale: 0 };
+
+  // This clock advances on audio position, independently of the existing head
+  // history. Fixed-time analytic samples retain short transients at any fps.
+  let gestureSettings = { anticipation: 0.08, compress: 0.12, hold: 0.1,
+    release: 0.25, settle: 0.4, amount: 0.04, chuckleScale: 0.75,
+    widen: 0.5, overshoot: 0.2, coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5 };
+  let gestureAmount = 1, gestureReply = null, gesturePosition = 0;
+  let gesture = null, recovery = null, gestureVisible = false, gestureCore = 0, sourceCore = 0;
+  let gestureCursor = 0, gestureSampledAt = 0, gestureNextSample = 0;
+  const GESTURE_STEP = 1 / 240;
+  let gestureHistory = new Float64Array(256 * 3);
+  const gestureSample = new Float64Array(3), gestureNow = new Float64Array(3);
+  const gestureSeen = new Set();
+  const gestureState = { value: 0, time: 0, activeId: null, starts: 0,
+    delay: gestureDelay, edge: gestureEdge, values: gestureValues };
+  diagnostics.gesture = gestureState;
+
+  function setGestureDelays() {
+    for (let i = 0; i < count; i++) gestureDelay[i] = gestureSettings.coreDelay * gestureInner[i]
+      + (gestureSettings.edgeDelay - gestureSettings.coreDelay) * gestureEdge[i];
+  }
+  setGestureDelays();
+
+  function gestureCurve(age, out) {
+    const g = gesture.settings;
+    out[0] = out[1] = out[2] = 0;
+    if (age <= 0) return;
+    const ramp = (t, duration) => duration > 0 ? swarmSmooth(t / duration) : 1;
+    out[2] = ramp(age, g.anticipation);
+    if (age < g.anticipation) out[0] = g.overshoot * out[2];
+    else if ((age -= g.anticipation) < g.compress) out[0] = lerp(g.overshoot, -1, ramp(age, g.compress));
+    else if ((age -= g.compress) < g.hold) out[0] = -1;
+    else if ((age -= g.hold) < g.release) {
+      out[0] = lerp(-1, g.overshoot, ramp(age, g.release));
+      out[1] = Math.max(0, out[0]) * g.edgeOvershoot;
+    } else if ((age -= g.release) < g.settle) {
+      out[0] = g.overshoot * (1 - ramp(age, g.settle));
+      out[1] = out[0] * g.edgeOvershoot;
+    }
+    out[0] *= gesture.strength;
+    out[1] *= gesture.strength;
+  }
+
+  function sampleGesture(at, out) {
+    if (at <= 0) { out.fill(0); return; }
+    if (at >= gestureSampledAt) {
+      const mix = gesture.age > gestureSampledAt ? (at - gestureSampledAt) / (gesture.age - gestureSampledAt) : 1;
+      for (let c = 0; c < 3; c++) out[c] = lerp(gestureHistory[gestureCursor * 3 + c], gestureNow[c], mix);
+    } else {
+      const samples = gestureHistory.length / 3;
+      const age = Math.min(samples - 1, (gestureSampledAt - at) / GESTURE_STEP), whole = Math.floor(age);
+      const a = (gestureCursor - whole + samples) % samples, b = (a - 1 + samples) % samples;
+      for (let c = 0; c < 3; c++) out[c] = lerp(gestureHistory[a * 3 + c], gestureHistory[b * 3 + c], age - whole);
+    }
+  }
+
+  function renderGesture() {
+    while (gestureNextSample <= gesture.age + 1e-9) {
+      gestureCurve(gestureNextSample, gestureSample);
+      gestureCursor = (gestureCursor + 1) % (gestureHistory.length / 3);
+      gestureHistory.set(gestureSample, gestureCursor * 3);
+      gestureSampledAt = gestureNextSample;
+      gestureNextSample += GESTURE_STEP;
+    }
+    gestureCurve(gesture.age, gestureNow);
+    gestureCore = sourceCore * (1 - gestureNow[2]) + gestureNow[0];
+    for (let i = 0; i < count; i++) {
+      if (gestureDelay[i] === 0) { gestureValues[i] = gestureCore; continue; }
+      sampleGesture(gesture.age - gestureDelay[i], gestureSample);
+      gestureValues[i] = gestureSource[i] * (1 - gestureSample[2])
+        + gestureSample[0] + gestureEdge[i] * gestureSample[1];
+    }
+  }
+
+  function restGesture() {
+    gesture = recovery = null;
+    gestureVisible = false; gestureCore = 0;
+    gestureValues.fill(0); gestureSource.fill(0);
+    gestureState.activeId = null;
+  }
+
+  function recoverGesture() {
+    if (!gestureVisible || recovery) return;
+    gestureSource.set(gestureValues); sourceCore = gestureCore;
+    recovery = { age: 0, duration: gestureSettings.settle };
+    gesture = null;
+    gestureState.activeId = null;
+  }
+
+  function startGesture(window, position) {
+    const continuing = gestureVisible;
+    gestureSource.set(gestureValues); sourceCore = gestureCore;
+    recovery = null;
+    const settings = { ...gestureSettings };
+    const duration = settings.anticipation + settings.compress + settings.hold + settings.release + settings.settle;
+    const delay = Math.max(settings.coreDelay, settings.edgeDelay);
+    gesture = { id: window.id, start: window.start, age: continuing ? 0 : Math.max(0, position - window.start), settings,
+      duration: duration + delay, strength: settings.amount * gestureAmount * (window.kind === 'chuckle' ? settings.chuckleScale : 1) };
+    const samples = Math.max(2, Math.ceil(delay / GESTURE_STEP) + 2);
+    if (gestureHistory.length !== samples * 3) gestureHistory = new Float64Array(samples * 3);
+    else gestureHistory.fill(0);
+    gestureCursor = 0; gestureSampledAt = 0; gestureNextSample = GESTURE_STEP;
+    gestureVisible = true;
+    gestureState.activeId = window.id; gestureState.starts++;
+    renderGesture();
+  }
+
+  function updateGesture(dt, cues, enabled, windows = []) {
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const reply = cues?.replyId ?? null, position = cues?.position ?? 0;
+    const replaced = reply !== gestureReply;
+    if (replaced) {
+      recoverGesture(); gestureSeen.clear();
+      gestureReply = reply;
+    }
+    // The first gap frame may reach the just-finished chunk's exact end.
+    // Thereafter its playback position is constant, freezing the entire field.
+    const speechStep = !replaced && cues ? Math.max(0, position - gesturePosition) : 0;
+    gesturePosition = position;
+    const allowed = enabled && gestureAmount > 0 && cues;
+    if (!allowed) recoverGesture();
+    if (recovery) {
+      // Stop/replacement/disable recover the entire visible field, including
+      // its delayed tails, rather than flushing the history to neutral.
+      recovery.age += step;
+      const fade = 1 - swarmSmooth(recovery.duration > 0 ? recovery.age / recovery.duration : 1);
+      gestureCore = sourceCore * fade;
+      for (let i = 0; i < count; i++) gestureValues[i] = gestureSource[i] * fade;
+      if (fade === 0) restGesture();
+    } else if (gesture) {
+      const window = windows.find(window => window.id === gesture.id);
+      gesture.age += speechStep;
+      if (window) {
+        // Corrections slew the existing occurrence on playback time. Its age
+        // cannot move backward, and a zero-time update cannot jump or restart.
+        const correction = position - window.start - gesture.age;
+        gesture.age += clamp(correction, -speechStep * 0.5, speechStep * 0.5);
+        gesture.start = window.start;
+      }
+      renderGesture();
+      if (gesture.age >= gesture.duration) restGesture();
+    }
+    for (const window of windows) {
+      if (position < window.start) continue;
+      if (gestureSeen.has(window.id)) continue;
+      if (allowed && cues.state === 'gap' && speechStep === 0) continue;
+      gestureSeen.add(window.id);
+      if (allowed) startGesture(window, position);
+    }
+    gestureState.value = gestureCore;
+    gestureState.time = gesture?.age ?? recovery?.age ?? 0;
+  }
 
   function update(dt, pose) {
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -851,6 +1037,15 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
       }
       localSource = squashed;
     }
+    if (gestureVisible) {
+      for (let i = 0, j = 0; i < count; i++, j += 3) {
+        const value = gestureValues[i] * amount * (i < filamentEnd ? attachment[i] : 0);
+        gestured[j] = localSource[j] - (localSource[j] - pivotX) * value * gestureSettings.widen;
+        gestured[j + 1] = localSource[j + 1] + (localSource[j + 1] - pivotY) * value;
+        gestured[j + 2] = localSource[j + 2];
+      }
+      localSource = gestured;
+    }
     // Reply-start turns peak near 80 degrees/second; keep their path shimmer
     // around 0.4% of face width, with proportionally less on gentle beats.
     const deviation = settings[0] * angularSpeed * width * (0.004 / 80) * amount;
@@ -869,6 +1064,11 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
       point.y += (point.y - pivotY) * stretch * 0.07
         + cheek * MAP_SCALE * 0.008 * Math.max(0, -stretch);
     }
+    if (gestureVisible) {
+      const value = gestureCore * displayAmount;
+      point.x -= (point.x - pivotX) * value * gestureSettings.widen;
+      point.y += (point.y - pivotY) * value;
+    }
     const x = point.x, y = point.y, z = point.z, m = matrices;
     point.x = x + m[0] * x + m[1] * y + m[2] * z + m[3];
     point.y = y + m[4] * x + m[5] * y + m[6] * z + m[7];
@@ -876,9 +1076,16 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     return point;
   }
 
-  return { update, apply, transformPoint, diagnostics,
+  return { update, updateGesture, apply, transformPoint, diagnostics,
     setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
     applyTuning(tuning) {
+    if (Number.isFinite(tuning.gestureAmount)) gestureAmount = clamp(tuning.gestureAmount, 0, 2);
+    if (tuning.gesture) {
+      for (const key of Object.keys(gestureSettings)) if (Number.isFinite(tuning.gesture[key])) {
+        gestureSettings[key] = Math.max(0, tuning.gesture[key]);
+      }
+      setGestureDelays();
+    }
     const names = ['swarm', 'swarmCoherence', 'surroundWeight', 'headDepth'];
     const low = [0, 0, 0, 1], high = [2, 1, 1, 4];
     for (let c = 0; c < names.length; c++) if (Number.isFinite(tuning[names[c]])) {
