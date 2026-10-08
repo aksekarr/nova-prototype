@@ -3,6 +3,11 @@ import { createVoiceEffect, stopReferenceClip } from './flanger.js';
 const ENVELOPE_HZ = 60;
 const RMS_WINDOW_SECONDS = 0.016;
 const SHAPE_LOOKAHEAD_SECONDS = 0.03;
+const STREAM_SAMPLE_RATE = 44100;
+const STREAM_LEAD_SECONDS = 0.1;
+// A short reference history prevents silence / a quiet first consonant from
+// becoming the normalisation peak. It ages out of the running percentile.
+const STREAM_RMS_REFERENCE = 0.12;
 const SHAPE_PRESETS = {
   rest: { w: 1, h: 1, round: 0, close: 0 },
   open: { w: 1, h: 1.25, round: 0, close: 0 },
@@ -98,6 +103,7 @@ export function createVoice({ caption, readout }) {
   let gainNode = null;
   let effect = null;
   let speech = null;
+  let reply = null;
   let soundOn = true;
   let envelope = 0;
   const shape = { ...SHAPE_PRESETS.rest };
@@ -106,6 +112,17 @@ export function createVoice({ caption, readout }) {
   function showStatus(text) {
     readout.textContent = text;
     readout.classList.toggle('live', text === 'Speaking');
+  }
+
+  function ensureAudio() {
+    if (ac) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try { ac = new AC({ sampleRate: STREAM_SAMPLE_RATE }); }
+    catch { ac = new AC(); }
+    gainNode = ac.createGain();
+    gainNode.gain.value = soundOn ? 1 : 0;
+    gainNode.connect(ac.destination);
+    effect = createVoiceEffect(ac, gainNode);
   }
 
   // Capture button gestures before their handlers start speech.
@@ -117,16 +134,9 @@ export function createVoice({ caption, readout }) {
 
   async function preload(ids) {
     idleStatus = 'Loading';
-    if (!speech) showStatus(idleStatus);
+    if (!speech && !reply) showStatus(idleStatus);
     try {
-      if (!ac) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        ac = new AC();
-        gainNode = ac.createGain();
-        gainNode.gain.value = soundOn ? 1 : 0;
-        gainNode.connect(ac.destination);
-        effect = createVoiceEffect(ac, gainNode);
-      }
+      ensureAudio();
       await Promise.all([effect.ready, ...ids.map((id) => {
         if (!lines.has(id)) lines.set(id, loadLine(id));
         return lines.get(id);
@@ -136,7 +146,7 @@ export function createVoice({ caption, readout }) {
       idleStatus = 'Voice unavailable';
       throw error;
     } finally {
-      if (!speech) showStatus(idleStatus);
+      if (!speech && !reply) showStatus(idleStatus);
     }
   }
 
@@ -151,7 +161,8 @@ export function createVoice({ caption, readout }) {
       alignmentResponse.json()
     ]);
     return {
-      buffer, words: buildWords(data), envelope: buildEnvelope(buffer),
+      buffer, text: data.text, alignment: data.alignment,
+      words: buildWords(data), envelope: buildEnvelope(buffer),
       shapes: buildShapeTimeline(data)
     };
   }
@@ -211,10 +222,290 @@ export function createVoice({ caption, readout }) {
   function stop() {
     stopReferenceClip();
     if (speech) finish(speech);
+    if (reply) finishStream(reply, true);
   }
+
+  // Map the audio clock into content time. In an underrun the content clock
+  // stays at the previous chunk's end; each new segment carries the same gap
+  // for both the mouth and captions, including gaps not yet audible.
+  function streamPosition(line, now) {
+    let position = 0;
+    for (const segment of line.segments) {
+      if (now < segment.start) return { position, audible: false };
+      if (now < segment.end) {
+        return { position: segment.offset + now - segment.start, audible: true };
+      }
+      position = segment.offset + segment.duration;
+    }
+    return { position, audible: false };
+  }
+
+  function finishStream(line, interrupted = false) {
+    if (line.finished) return;
+    line.finished = true;
+    line.interrupted = interrupted;
+    for (const source of line.sources) {
+      source.onended = null;
+      source.stop();
+      source.disconnect();
+    }
+    line.sources.clear();
+    line.pending.length = 0;
+    line.tail = new Float32Array(0);
+    if (reply === line) {
+      reply = null;
+      if (!interrupted) line.spans.forEach(span => span.classList.add('on'));
+      showStatus(idleStatus);
+    }
+    if (line.underruns) console.debug('Live reply underruns:', line.underruns);
+    line.resolve();
+  }
+
+  function settleStream(line) {
+    if (line.ended && !line.pending.length && !line.sources.size) finishStream(line);
+  }
+
+  function appendEnvelope(line, samples, final = false) {
+    const joined = new Float32Array(line.tail.length + samples.length);
+    joined.set(line.tail);
+    joined.set(samples, line.tail.length);
+    const base = line.tailOffset;
+    line.sampleCount += samples.length;
+    const windowSize = Math.round(STREAM_SAMPLE_RATE * RMS_WINDOW_SECONDS);
+    let start = Math.floor(line.envelope.length * STREAM_SAMPLE_RATE / ENVELOPE_HZ);
+    while (start < line.sampleCount && (final || start + windowSize <= line.sampleCount)) {
+      const end = Math.min(line.sampleCount, start + windowSize);
+      let sum = 0;
+      for (let i = start; i < end; i++) sum += joined[i - base] ** 2;
+      const rms = Math.fround(Math.sqrt(sum / (end - start)));
+      let lo = 0, hi = line.rms.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (line.rms[mid] < rms) lo = mid + 1;
+        else hi = mid;
+      }
+      line.rms.splice(lo, 0, rms);
+      const peak = line.rms[Math.ceil(line.rms.length * 0.95) - 1];
+      const value = peak > 0 ? Math.min(1, rms / peak) : 0;
+      line.envelope.push(Math.fround(value < 0.08 ? 0 : value));
+      start = Math.floor(line.envelope.length * STREAM_SAMPLE_RATE / ENVELOPE_HZ);
+    }
+    line.tailOffset = Math.min(start, line.sampleCount);
+    line.tail = joined.slice(line.tailOffset - base);
+  }
+
+  function refreshStreamAlignment(line) {
+    const alignment = line.alignment;
+    // Some replies begin halfway through a leading tag, including its closing
+    // bracket but not its opening bracket. Restore just the tag parser state.
+    const joined = alignment.characters.join('');
+    const close = joined.indexOf(']'), open = joined.indexOf('[');
+    const leadingTags = line.text.match(/^\s*(?:\[[^\]]*\]\s*)+/)?.[0] || '';
+    const unfinishedTag = joined.trim() && close < 0 && open < 0 &&
+      Array.from({ length: leadingTags.length }, (_, i) => leadingTags.slice(i))
+        .some(suffix => suffix.startsWith(joined) && suffix.includes(']'));
+    const partialTag = leadingTags && (unfinishedTag || (close >= 0 && (open < 0 || close < open)));
+    const parsed = partialTag ? {
+      characters: ['[', ...alignment.characters],
+      character_start_times_seconds: [0, ...alignment.character_start_times_seconds]
+    } : alignment;
+    line.shapes = buildShapeTimeline({ alignment: parsed });
+    let visible = '', inTag = false;
+    const times = [];
+    parsed.characters.forEach((character, i) => {
+      for (const char of character) {
+        if (char === '[') inTag = true;
+        else if (char === ']') inTag = false;
+        else if (!inTag) {
+          visible += char;
+          for (let j = 0; j < char.length; j++) times.push(parsed.character_start_times_seconds[i]);
+        }
+      }
+    });
+    const tokens = Array.from(visible.matchAll(/\S+/g));
+    const normalise = word => word.toLowerCase().replace(/\p{P}/gu, '');
+    for (const word of line.words) word.start = Infinity;
+    let next = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      const value = normalise(token[0]);
+      if (!value) continue;
+      const partial = i === tokens.length - 1 && !/\s$/.test(visible) && !line.ended;
+      const match = line.words.findIndex((word, j) => j >= next &&
+        (normalise(word.text) === value || (partial && normalise(word.text).startsWith(value))));
+      if (match < 0) continue;
+      const start = times[token.index];
+      // Missing leading words, or a mismatch in the middle, light with the
+      // next matched word. Always consume matches in caption order.
+      for (; next <= match; next++) line.words[next].start = start;
+    }
+    if (line.ended) {
+      const last = next ? line.words[next - 1].start : 0;
+      for (; next < line.words.length; next++) line.words[next].start = last;
+    }
+  }
+
+  function scheduleStream(line) {
+    if (reply !== line || line.finished || !line.ready) return;
+    for (const { buffer, arrival, offset } of line.pending.splice(0)) {
+      const previous = line.segments[line.segments.length - 1];
+      const expected = previous ? previous.end : arrival + STREAM_LEAD_SECONDS;
+      const start = Math.max(expected, ac.currentTime);
+      const gap = previous ? Math.max(0, start - expected) : 0;
+      if (gap > 0) line.underruns++;
+      if (!previous) line.startedAt = start;
+      const source = ac.createBufferSource();
+      source.buffer = buffer;
+      source.connect(effect.input);
+      const segment = { start, end: start + buffer.duration, offset, duration: buffer.duration, gap };
+      line.segments.push(segment);
+      line.sources.add(source);
+      source.onended = () => {
+        source.disconnect();
+        line.sources.delete(source);
+        if (!line.finished) settleStream(line);
+      };
+      if (!previous) effect.reset();
+      source.start(start);
+    }
+    settleStream(line);
+  }
+
+  function beginStream() {
+    stop();
+    ensureAudio();
+    const line = {
+      text: '', words: [], spans: [], shown: 0, shapes: [],
+      alignment: { characters: [], character_start_times_seconds: [] }, alignmentOffset: 0,
+      envelope: [], rms: Array(12).fill(STREAM_RMS_REFERENCE),
+      tail: new Float32Array(0), tailOffset: 0, sampleCount: 0,
+      pending: [], sources: new Set(), segments: [], startedAt: null,
+      underruns: 0, ready: false, ended: false, finished: false, interrupted: false
+    };
+    line.done = new Promise(resolve => { line.resolve = resolve; });
+    reply = line;
+    caption.className = 'caption';
+    caption.textContent = '';
+    ac.resume().catch(() => {});
+    effect.ready.then(() => {
+      if (reply !== line) return;
+      line.ready = true;
+      scheduleStream(line);
+    }).catch(() => {
+      if (reply !== line) return;
+      idleStatus = 'Voice unavailable';
+      finishStream(line, true);
+    });
+    const accepts = () => reply === line && !line.finished && !line.ended;
+    const handle = {
+      setText(text) {
+        if (!accepts()) return;
+        line.text = typeof text === 'string' ? text : '';
+        line.words = line.text.replace(/\[[^\]]*\]/g, '').trim().split(/\s+/).filter(Boolean)
+          .map(text => ({ text, start: Infinity }));
+        caption.textContent = '';
+        line.shown = 0;
+        line.spans = line.words.map(({ text }) => {
+          const span = document.createElement('span');
+          span.className = 'w';
+          span.textContent = text;
+          caption.appendChild(span);
+          caption.appendChild(document.createTextNode(' '));
+          return span;
+        });
+        refreshStreamAlignment(line);
+      },
+      addAudio(base64) {
+        if (!accepts()) return;
+        const arrival = ac.currentTime;
+        const bytes = atob(base64);
+        if (!bytes.length || bytes.length % 2) return;
+        const buffer = ac.createBuffer(1, bytes.length / 2, STREAM_SAMPLE_RATE);
+        const samples = buffer.getChannelData(0);
+        for (let i = 0; i < samples.length; i++) {
+          const value = bytes.charCodeAt(2 * i) | (bytes.charCodeAt(2 * i + 1) << 8);
+          samples[i] = (value >= 32768 ? value - 65536 : value) / 32768;
+        }
+        const offset = line.sampleCount / STREAM_SAMPLE_RATE;
+        appendEnvelope(line, samples);
+        line.pending.push({ buffer, arrival, offset });
+        scheduleStream(line);
+      },
+      addAlignment(chunk) {
+        if (!accepts() || !Array.isArray(chunk?.chars)) return;
+        let duration = 0;
+        chunk.chars.forEach((character, i) => {
+          const start = chunk.char_start_times_ms?.[i];
+          const length = chunk.char_durations_ms?.[i];
+          if (typeof character !== 'string' || !Number.isFinite(start) ||
+              !Number.isFinite(length) || start < 0 || length < 0) return;
+          duration = Math.max(duration, start + length);
+          line.alignment.characters.push(character);
+          line.alignment.character_start_times_seconds.push((line.alignmentOffset + start) / 1000);
+        });
+        line.alignmentOffset += duration;
+        refreshStreamAlignment(line);
+      },
+      end() {
+        if (accepts()) {
+          line.ended = true;
+          appendEnvelope(line, new Float32Array(0), true);
+          refreshStreamAlignment(line);
+          settleStream(line);
+        }
+        return line.done;
+      },
+      interrupt() { if (reply === line) finishStream(line, true); },
+      // Numerical diagnostics for the dev simulator; never expose PCM or text.
+      inspect() {
+        return {
+          startedAt: line.startedAt, sampleRate: STREAM_SAMPLE_RATE, contextSampleRate: ac.sampleRate,
+          segments: line.segments.map(segment => ({ ...segment,
+            shift: segment.start - line.startedAt - segment.offset,
+            timelineStart: streamPosition(line, segment.start).position })),
+          underruns: line.underruns, shapes: line.shapes.map(item => ({ ...item, shape: { ...item.shape } })),
+          words: line.words.map(({ start }) => ({ start })), envelope: [...line.envelope],
+          sampleCount: line.sampleCount, finished: line.finished, interrupted: line.interrupted,
+          audible: !line.finished && streamPosition(line, ac.currentTime).audible
+        };
+      }
+    };
+    line.handle = handle;
+    return handle;
+  }
+
+  const stream = {
+    begin: beginStream,
+    setText(text) { reply?.handle.setText(text); },
+    addAudio(base64) { reply?.handle.addAudio(base64); },
+    addAlignment(chunk) { reply?.handle.addAlignment(chunk); },
+    end() { return reply ? reply.handle.end() : Promise.resolve(); },
+    interrupt() { if (reply) finishStream(reply, true); },
+    isActive() { return Boolean(reply); },
+    isAudible() { return Boolean(reply && streamPosition(reply, ac.currentTime).audible); }
+  };
 
   function update(dt) {
     let targetShape = SHAPE_PRESETS.rest;
+    if (reply) {
+      const { position, audible } = streamPosition(reply, ac.currentTime);
+      const target = audible ? reply.envelope[Math.floor(position * ENVELOPE_HZ)] || 0 : 0;
+      const timeConstant = target > envelope ? 0.025 : 0.08;
+      envelope += (target - envelope) * (1 - Math.exp(-dt / timeConstant));
+      showStatus(audible ? 'Speaking' : idleStatus);
+      if (audible) {
+        while (reply.shown < reply.words.length && reply.words[reply.shown].start <= position) {
+          reply.spans[reply.shown++].classList.add('on');
+        }
+        for (const item of reply.shapes) {
+          if (item.start > position + SHAPE_LOOKAHEAD_SECONDS) break;
+          targetShape = item.shape;
+        }
+      }
+    } else if (!speech) {
+      envelope += (0 - envelope) * (1 - Math.exp(-dt / 0.08));
+      if (envelope < 0.00001) envelope = 0;
+    }
     if (speech && speech.source) {
       const position = Math.max(0, ac.currentTime - speech.startedAt);
       const { words, envelope: values, shapes } = speech.data;
@@ -252,5 +543,8 @@ export function createVoice({ caption, readout }) {
     if (gainNode) gainNode.gain.setValueAtTime(soundOn ? 1 : 0, ac.currentTime);
   }
 
-  return { preload, speak, stop, currentEnvelope, currentShape, setSoundOn, update };
+  // The simulator reuses the existing preload/cache path, with no extra fetches.
+  function getLabLine(id) { return lines.get(id); }
+
+  return { preload, speak, stop, currentEnvelope, currentShape, setSoundOn, update, stream, getLabLine };
 }

@@ -32,6 +32,8 @@ const el = {
 };
 const LABEL = { nebula: 'Nebula', face: 'Face', tree: 'Tree' };
 let soundOn = true;
+let liveSimulation = null;
+let liveSpeaking = false;
 const voice = createVoice({
   caption: el.caption,
   readout: el.voice
@@ -75,13 +77,21 @@ startStage({
   shapes, reduce, state,
   speechLab: {
     play: playLabLine,
+    simulate: simulateLabLine,
+    interrupt: stopAll,
     references: {
       load: loadReferenceClips,
       play(kind) { stopAll(); return playReferenceClip(kind); }
     }
   },
   applyFaceTuning: face.applyTuning,
-  onFrame: dt => voice.update(dt),
+  onFrame: dt => {
+    voice.update(dt);
+    if (liveSpeaking) {
+      state.speaking = voice.stream.isAudible();
+      if (!voice.stream.isActive()) liveSpeaking = false;
+    }
+  },
   updateFace: (dt, clock) => {
     face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape());
   }
@@ -90,7 +100,14 @@ startStage({
 // Each new interaction invalidates the pending steps of the scripted sequence.
 let seqId = 0, speechId = 0;
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-function stopAll() { seqId++; speechId++; state.speaking = false; voice.stop(); }
+function stopAll() {
+  seqId++; speechId++;
+  if (liveSimulation) liveSimulation.interrupt();
+  liveSimulation = null;
+  liveSpeaking = false;
+  state.speaking = false;
+  voice.stop();
+}
 async function speakLine(lineId) {
   const id = ++speechId;
   state.speaking = true;
@@ -111,6 +128,34 @@ async function playLabLine(lineId) {
   await Promise.all([voice.preload([lineId]), sleep(formationWait)]);
   if (id !== seqId) return;
   await speakLine(lineId);
+}
+async function simulateLabLine(lineId, options) {
+  if (params.get('tune') !== '1') return;
+  stopAll();
+  const id = seqId;
+  if (state.mode !== 'face') {
+    if (!setMode('face')) return;
+    restCaption('Forming…');
+  }
+  const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+  const [{ startLiveSimulation }] = await Promise.all([
+    import('./livesim.js'), voice.preload([lineId]), sleep(formationWait)
+  ]);
+  if (id !== seqId) return;
+  const line = await voice.getLabLine(lineId);
+  if (id !== seqId) return;
+  const simulation = startLiveSimulation(voice, line, options);
+  liveSimulation = simulation;
+  liveSpeaking = true;
+  try {
+    return await simulation.done;
+  } finally {
+    if (liveSimulation === simulation) {
+      liveSimulation = null;
+      liveSpeaking = false;
+      state.speaking = false;
+    }
+  }
 }
 async function runSequence() {
   stopReferenceClip();

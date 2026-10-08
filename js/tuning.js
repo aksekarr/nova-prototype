@@ -231,10 +231,32 @@ function createSpeechLab(speechLab) {
   play.type = 'button';
   play.textContent = 'Play';
   play.disabled = true;
+  const simulate = document.createElement('button');
+  simulate.type = 'button';
+  simulate.textContent = 'Simulate live';
+  simulate.disabled = true;
+  const interrupt = document.createElement('button');
+  interrupt.type = 'button';
+  interrupt.textContent = 'Interrupt';
+  interrupt.disabled = true;
+  const slowLabel = document.createElement('label');
+  slowLabel.className = 'tuning-footer';
+  const slow = document.createElement('input');
+  slow.type = 'checkbox';
+  slow.id = 'speech-lab-slow';
+  const slowText = document.createElement('span');
+  slowText.textContent = 'Slow network';
+  slowLabel.append(slow, slowText);
+  const actions = document.createElement('div');
+  actions.className = 'tuning-footer';
+  actions.style.gridColumn = '1 / -1';
+  actions.style.flexWrap = 'wrap';
+  actions.append(play, simulate, interrupt);
+  select.style.gridColumn = '1 / -1';
   const status = document.createElement('span');
   status.className = 'tuning-status';
   status.setAttribute('role', 'status');
-  lab.append(label, select, play, status);
+  lab.append(label, select, actions, slowLabel, status);
 
   fetch(new URL('../voice/lines.json', import.meta.url))
     .then(response => {
@@ -254,6 +276,7 @@ function createSpeechLab(speechLab) {
       }));
       select.disabled = false;
       play.disabled = false;
+      simulate.disabled = false;
     })
     .catch(error => {
       loading.textContent = 'Lines unavailable';
@@ -261,24 +284,48 @@ function createSpeechLab(speechLab) {
       console.warn('Speech lab unavailable.', error);
     });
 
-  let pending = false;
-  play.addEventListener('click', async () => {
+  let pending = false, playbackRequest = 0;
+  function setPending(value) {
+    pending = value;
+    play.disabled = value;
+    simulate.disabled = value;
+    select.disabled = value;
+    slow.disabled = value;
+    interrupt.disabled = !value;
+  }
+  function formatReport(report) {
+    if (!report) return 'Ready';
+    if (report.interrupted) return 'Interrupted';
+    const fixed = (value, digits = 3) => Number.isFinite(value) ? value.toFixed(digits) : 'mismatch';
+    return `Shape ${report.shapeValuesMatch ? fixed(report.shapeMaxMs) : 'mismatch'} ms; words ${fixed(report.wordMaxMs)} ms; ` +
+      `envelope MAE ${fixed(report.envelopeMeanAbsoluteDifference, 4)}; ` +
+      `seam ${fixed(report.largestSeamSamples)} samples; underruns ${report.underruns}; ` +
+      `gap mismatch ${fixed(report.largestGapMismatchMs)} ms.`;
+  }
+  async function run(simulated) {
     if (pending || !select.value) return;
-    pending = true;
-    play.disabled = true;
-    select.disabled = true;
-    status.textContent = 'Loading / playing…';
+    const request = ++playbackRequest;
+    setPending(true);
+    status.textContent = simulated ? 'Loading / simulating…' : 'Loading / playing…';
     try {
-      await speechLab.play(select.value);
-      status.textContent = 'Ready';
+      const report = await (simulated
+        ? speechLab.simulate(select.value, { slowNetwork: slow.checked })
+        : speechLab.play(select.value));
+      if (request === playbackRequest) status.textContent = formatReport(report);
     } catch (error) {
-      status.textContent = 'This line could not be played.';
+      if (request === playbackRequest) status.textContent = 'This line could not be played.';
       console.warn('Speech lab playback failed.', error);
     } finally {
-      pending = false;
-      play.disabled = false;
-      select.disabled = false;
+      if (request === playbackRequest) setPending(false);
     }
+  }
+  play.addEventListener('click', () => run(false));
+  simulate.addEventListener('click', () => run(true));
+  interrupt.addEventListener('click', () => {
+    playbackRequest++;
+    speechLab.interrupt();
+    setPending(false);
+    status.textContent = 'Interrupted';
   });
   return lab;
 }
