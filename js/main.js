@@ -112,7 +112,7 @@ startStage({
     }
   },
   updateFace: (dt, clock) => {
-    face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape());
+    face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape(), state.speaking);
   }
 });
 

@@ -41,6 +41,12 @@ const FLANGER_CONTROLS = [
   ['flangerMix', 'Mix', 0, 1, 0.01],
 ];
 
+const HEAD_CONTROLS = [
+  ['headAmount', 'Head amount', 0, 2, 0.01],
+  ['nodAmount', 'Nod amount', 0, 2, 0.01],
+  ['blinkRate', 'Blinks per minute', 0, 30, 1],
+];
+
 export function createTuningPanel(tuning, onChange, speechLab) {
   const panel = document.createElement('details');
   panel.className = 'tuning';
@@ -72,6 +78,12 @@ export function createTuningPanel(tuning, onChange, speechLab) {
     status.textContent = '';
     onChange(tuning, key);
   }, speechLab?.references));
+
+  content.append(createHeadEyes(tuning, key => {
+    refreshJSON();
+    status.textContent = '';
+    onChange(tuning, key);
+  }));
 
   for (const [key, labelText, min, max, step] of CONTROLS) {
     const label = document.createElement('label');
@@ -126,6 +138,42 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   panel.append(content);
   document.body.append(panel);
   return panel;
+}
+
+function createHeadEyes(tuning, onChange) {
+  const group = document.createElement('div');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Head & eyes');
+  const heading = document.createElement('div');
+  heading.textContent = 'Head & eyes';
+  heading.setAttribute('role', 'heading');
+  heading.setAttribute('aria-level', '3');
+  group.append(heading);
+
+  for (const [key, labelText, min, max, step] of HEAD_CONTROLS) {
+    const label = document.createElement('label');
+    label.className = 'tuning-control';
+    const name = document.createElement('span');
+    name.textContent = labelText;
+    const value = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `tuning-${key}`;
+    input.min = min;
+    input.max = max;
+    input.step = step;
+    input.value = tuning[key];
+    value.htmlFor = input.id;
+    value.value = input.value;
+    input.addEventListener('input', () => {
+      tuning[key] = Number(input.value);
+      value.value = input.value;
+      onChange(key);
+    });
+    label.append(name, value, input);
+    group.append(label);
+  }
+  return group;
 }
 
 function createVoiceEffect(tuning, onChange, references) {
