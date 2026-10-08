@@ -1,5 +1,5 @@
 import { createShapes } from './shapes.js';
-import { createFace } from './face.js';
+import { createFace, EXPR } from './face.js';
 import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 import { loadFaceMap } from './facemap.js';
@@ -23,7 +23,7 @@ const designs = createShapes(N, faceMaps);
 const shapes = { ...designs, ...designs.FACE_V3 };
 const face = designs.FACE_V3 ? createFace(shapes, reduce) : { update() {}, applyTuning() {} };
 const FACE_UNAVAILABLE = 'Face unavailable. Staying in nebula.';
-const state = { mode: 'nebula', modeT: 0, clock: 0, exprName: 'neutral', speaking: false };
+const state = { mode: 'nebula', modeT: 0, clock: 0, speaking: false };
 const el = {
   state: document.getElementById('r-state'), expr: document.getElementById('r-expr'),
   voice: document.getElementById('r-voice'), caption: document.getElementById('caption'),
@@ -35,6 +35,7 @@ let soundOn = true;
 let liveSimulation = null;
 let captureReplay = null;
 let liveSpeaking = false;
+let previewListening = false;
 let liveSession = null;
 let liveSetupPending = false;
 let liveClientPromise = null;
@@ -67,12 +68,42 @@ function setMode(m) {
   return true;
 }
 
-function setExpr(n) {
-  state.exprName = n;
-  el.expr.textContent = n.charAt(0).toUpperCase() + n.slice(1);
-  document.querySelectorAll('[data-expr]').forEach(function (b) {
-    b.setAttribute('aria-pressed', String(b.dataset.expr === n));
-  });
+const expressionButtons = [];
+const expressionRow = document.querySelector('[data-expr]')?.parentElement;
+if (expressionRow) {
+  expressionRow.replaceChildren();
+  expressionRow.style.maxWidth = 'min(540px, calc(100vw - 48px))';
+  expressionRow.style.flexWrap = 'wrap';
+  for (const name of ['neutral', ...Object.keys(EXPR)]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.expr = name;
+    button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    button.setAttribute('aria-pressed', String(name === 'neutral'));
+    button.addEventListener('click', () => setExpr(name));
+    expressionButtons.push(button);
+    expressionRow.append(button);
+  }
+}
+
+function renderExpressionSelection({ name, intensity, active }) {
+  const title = active.charAt(0).toUpperCase() + active.slice(1);
+  if (el.expr.textContent !== title) el.expr.textContent = title;
+  for (const button of expressionButtons) {
+    const pressed = String(button.dataset.expr === active);
+    if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
+  }
+  // The tuning panel follows explicit face selections without feeding them
+  // back into applyTuning or creating another writer for the main readout.
+  document.dispatchEvent(new CustomEvent('nova-pose', { detail: { name, intensity } }));
+}
+face.onSelectionChange?.(renderExpressionSelection);
+document.addEventListener('nova-pose-select', event => {
+  setExpr(event.detail.name, event.detail.intensity);
+});
+
+function setExpr(name, intensity = 1) {
+  face.setPose?.(name, intensity);
 }
 
 function restCaption(text) {
@@ -90,6 +121,9 @@ startStage({
     loadCapture: async file => captureTools.parseCapture(await file.text()),
     replay: replayCapture,
     interrupt: stopAll,
+    setPreviewListening(value) {
+      if (params.get('tune') === '1') previewListening = Boolean(value);
+    },
     references: {
       load: loadReferenceClips,
       play(kind) { stopAll(); return playReferenceClip(kind); }
@@ -112,7 +146,9 @@ startStage({
     }
   },
   updateFace: (dt, clock) => {
-    face.update(dt, clock, state.exprName, voice.currentEnvelope(), voice.currentShape(), state.speaking);
+    face.update(dt, clock, voice.currentCues(), voice.currentEnvelope(), voice.currentShape(),
+      state.speaking, voice.lastReplyEnd(), previewListening
+        || Boolean(liveSession?.connected && liveSession.listening));
   }
 });
 
@@ -135,6 +171,9 @@ async function speakLine(lineId) {
   const id = ++speechId;
   state.speaking = true;
   try {
+    const line = await voice.getLabLine(lineId);
+    if (id !== speechId) return;
+    face.setReplyText?.(line?.text ?? null);
     await voice.speak(lineId);
   } finally {
     if (id === speechId) state.speaking = false;
@@ -167,6 +206,7 @@ async function simulateLabLine(lineId, options) {
   if (id !== seqId) return;
   const line = await voice.getLabLine(lineId);
   if (id !== seqId) return;
+  face.setReplyText?.(line.text);
   const simulation = startLiveSimulation(voice, line, options);
   liveSimulation = simulation;
   liveSpeaking = true;
@@ -183,21 +223,20 @@ async function simulateLabLine(lineId, options) {
 async function runSequence() {
   stopAll();
   const id = ++seqId; function alive() { return id === seqId; }
-  setExpr('neutral'); if (!setMode('face')) return; restCaption('Forming…');
+  if (!setMode('face')) return; restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
-  setExpr('warm'); await speakLine('hello'); if (!alive()) return;
+  await speakLine('hello'); if (!alive()) return;
   await sleep(350); if (!alive()) return;
-  setExpr('neutral'); await speakLine('intro'); if (!alive()) return;
-  setExpr('curious'); await speakLine('trees'); if (!alive()) return;
+  await speakLine('intro'); if (!alive()) return;
+  await speakLine('trees'); if (!alive()) return;
   setMode('tree'); await sleep(1400); if (!alive()) return;
   await speakLine('tree'); if (!alive()) return;
   await sleep(1600); if (!alive()) return;
-  setExpr('warm'); setMode('face'); restCaption('Returning…');
+  setMode('face'); restCaption('Returning…');
   await sleep(2600); if (!alive()) return;
   await speakLine('back'); if (!alive()) return;
-  setExpr('thinking'); restCaption('Listening.');
+  restCaption('Listening.');
   await sleep(1800); if (!alive()) return;
-  setExpr('neutral');
 }
 
 async function replayCapture(reply) {
@@ -210,6 +249,7 @@ async function replayCapture(reply) {
   }
   await sleep(Math.max(0, 2800 - (state.clock - state.modeT) * 1000));
   if (id !== seqId) return;
+  face.setReplyText?.(reply.text);
   const replay = captureTools.startCaptureReplay(voice, reply);
   captureReplay = replay;
   liveSpeaking = true;
@@ -234,9 +274,6 @@ document.querySelectorAll('[data-mode]').forEach(function (b) {
     stopAll(); if (!setMode(b.dataset.mode)) return;
     restCaption(b.dataset.mode === 'nebula' ? 'At rest.' : b.dataset.mode === 'tree' ? 'Showing a tree.' : 'Listening.');
   });
-});
-document.querySelectorAll('[data-expr]').forEach(function (b) {
-  b.addEventListener('click', function () { setExpr(b.dataset.expr); });
 });
 el.line.addEventListener('click', async function () {
   stopAll(); const id = seqId;
@@ -445,7 +482,7 @@ async function startLive() {
   stopAll();
   if (!setMode('face')) return;
   const session = {
-    connected: false, stopped: false, conversation: null, streams: new Set(),
+    connected: false, listening: true, stopped: false, conversation: null, streams: new Set(),
     cutoff: 0, audioAccepted: false, replyOpen: false, pendingText: null,
     idleReadout: el.voice.textContent
   };
@@ -460,6 +497,7 @@ async function startLive() {
   };
   const beginReply = () => {
     if (!session.replyOpen) {
+      face.setReplyText?.(session.pendingText);
       voice.stream.begin();
       session.replyOpen = true;
       if (session.pendingText !== null) voice.stream.setText(session.pendingText);
@@ -525,13 +563,18 @@ async function startLive() {
       },
       onMessage({ source, message, event_id }) {
         if (!active() || source !== 'ai' || event_id < session.cutoff) return;
-        if (session.replyOpen) voice.stream.setText(message);
+        if (session.replyOpen) {
+          face.setReplyText?.(message);
+          voice.stream.setText(message);
+        }
         else session.pendingText = message;
       },
       onModeChange({ mode }) {
+        if (!active()) return;
+        session.listening = mode === 'listening';
         // handlePlaybackEvent(process.finished) reports the muted SDK queue's
         // end; Nova may still be audible while its own scheduled tail drains.
-        if (!active() || mode !== 'listening' || !session.replyOpen) return;
+        if (mode !== 'listening' || !session.replyOpen) return;
         session.replyOpen = false;
         voice.stream.end();
       },

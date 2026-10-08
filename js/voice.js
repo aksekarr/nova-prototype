@@ -97,6 +97,103 @@ function buildWords({ text, alignment }) {
   return words.map((text, i) => ({ text, start: times[alignedWords[i].index] }));
 }
 
+// Expression timing is separate from the mouth/caption parsers. Cue identities
+// come from the full reply text, so another alignment chunk can refine a cue's
+// times without making the same occurrence into a new event.
+function buildCueTimeline(text, alignment, ended = true) {
+  const normalise = word => word.toLowerCase().replace(/\p{P}/gu, '');
+  const words = [], tags = [];
+  for (const token of text.matchAll(/\[[^\]]*\]|[^\s[\]]+/g)) {
+    if (token[0][0] === '[') {
+      tags.push({ id: `tag:${tags.length}`, name: token[0].slice(1, -1).trim().toLowerCase(),
+        wordIndex: words.length });
+    } else words.push({ text: token[0], value: normalise(token[0]), start: Infinity, end: Infinity });
+  }
+
+  const characters = alignment.characters || [];
+  const starts = alignment.character_start_times_seconds || [];
+  const ends = alignment.character_end_times_seconds || [];
+  const joined = characters.join('');
+  const close = joined.indexOf(']'), open = joined.indexOf('[');
+  const leadingTags = text.match(/^\s*(?:\[[^\]]*\]\s*)+/)?.[0] || '';
+  const unfinishedTag = joined.trim() && close < 0 && open < 0 &&
+    Array.from({ length: leadingTags.length }, (_, i) => leadingTags.slice(i))
+      .some(suffix => suffix.startsWith(joined) && suffix.includes(']'));
+  const partialTag = Boolean(leadingTags && (unfinishedTag || (close >= 0 && (open < 0 || close < open))));
+  let visible = '', tag = partialTag ? { name: '', start: 0, end: 0, partial: true, index: 0 } : null;
+  const visibleStarts = [], visibleEnds = [], alignedTags = [];
+  characters.forEach((character, i) => {
+    const start = starts[i];
+    const end = Number.isFinite(ends[i]) ? ends[i] : (starts[i + 1] ?? start);
+    for (const char of character) {
+      if (char === '[') tag = { name: '', start, end, partial: false, index: visible.length };
+      else if (char === ']') {
+        if (tag) alignedTags.push({ ...tag, end, name: tag.name.trim().toLowerCase() });
+        tag = null;
+      } else if (tag) { tag.name += char; tag.end = end; }
+      else {
+        visible += char;
+        for (let j = 0; j < char.length; j++) {
+          visibleStarts.push(start);
+          visibleEnds.push(end);
+        }
+      }
+    }
+  });
+  const tokens = Array.from(visible.matchAll(/\S+/g));
+  let nextWord = 0;
+  const matches = [];
+  tokens.forEach((token, i) => {
+    const value = normalise(token[0]);
+    if (!value) return;
+    const partial = i === tokens.length - 1 && !/\s$/.test(visible) && !ended;
+    const match = words.findIndex((word, j) => j >= nextWord &&
+      (word.value === value || (partial && word.value.startsWith(value))));
+    if (match < 0) return;
+    const start = visibleStarts[token.index], end = visibleEnds[token.index + token[0].length - 1];
+    // An omitted word inherits the next reliable boundary, just as captions do.
+    for (; nextWord <= match; nextWord++) {
+      words[nextWord].start = start;
+      words[nextWord].end = nextWord === match ? end : start;
+    }
+    matches.push({ index: token.index, wordIndex: match });
+  });
+  const cues = [];
+  const usedTags = new Set();
+  for (const aligned of alignedTags) {
+    const following = matches.find(match => match.index >= aligned.index)?.wordIndex;
+    const candidates = tags.filter(tag => !usedTags.has(tag.id) &&
+      (tag.name === aligned.name || (aligned.partial && tag.name.endsWith(aligned.name))));
+    const match = candidates.find(tag => tag.wordIndex === following) || candidates[0];
+    if (!match) continue;
+    usedTags.add(match.id);
+    const nextWordStart = words[match.wordIndex]?.start;
+    cues.push({ id: match.id, type: 'tag', name: match.name, start: aligned.start, end: aligned.end,
+      ...(Number.isFinite(nextWordStart) ? { nextWordStart } : {}) });
+  }
+  for (const tag of tags) {
+    if (usedTags.has(tag.id)) continue;
+    const nextWordStart = words[tag.wordIndex]?.start;
+    if (tag.wordIndex === 0) {
+      cues.push({ id: tag.id, type: 'tag', name: tag.name, start: 0,
+        end: Number.isFinite(nextWordStart) ? nextWordStart : 0,
+        ...(Number.isFinite(nextWordStart) ? { nextWordStart } : {}) });
+    } else if (Number.isFinite(nextWordStart)) {
+      cues.push({ id: tag.id, type: 'tag', name: tag.name, start: nextWordStart, end: nextWordStart, nextWordStart });
+    }
+  }
+  let questionIndex = 0;
+  words.forEach((word, i) => {
+    if (!word.text.includes('?')) return;
+    const id = `question:${questionIndex++}`;
+    const lastWord = word.value ? word : words.slice(0, i).findLast(item => item.value);
+    if (lastWord && Number.isFinite(lastWord.start) && Number.isFinite(lastWord.end)) {
+      cues.push({ id, type: 'question', start: lastWord.start, end: lastWord.end + 0.3 });
+    }
+  });
+  return cues.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+}
+
 export function createVoice({ caption, readout }) {
   const lines = new Map();
   let ac = null;
@@ -108,6 +205,8 @@ export function createVoice({ caption, readout }) {
   let envelope = 0;
   const shape = { ...SHAPE_PRESETS.rest };
   let idleStatus = 'Loading';
+  let nextReplyId = 0;
+  let lastEnd = null;
 
   function showStatus(text) {
     readout.textContent = text;
@@ -163,12 +262,15 @@ export function createVoice({ caption, readout }) {
     return {
       buffer, text: data.text, alignment: data.alignment,
       words: buildWords(data), envelope: buildEnvelope(buffer),
-      shapes: buildShapeTimeline(data)
+      shapes: buildShapeTimeline(data), cues: buildCueTimeline(data.text, data.alignment)
     };
   }
 
-  function finish(line) {
+  function finish(line, interrupted = false) {
     if (speech !== line) return;
+    lastEnd = { replyId: line.replyId, reason: interrupted ? 'interrupted' : 'completed',
+      position: line.source ? Math.max(0, ac.currentTime - line.startedAt) : 0,
+      cues: line.data?.cues || [] };
     speech = null;
     envelope = 0;
     if (line.source) {
@@ -184,7 +286,7 @@ export function createVoice({ caption, readout }) {
   function speak(id) {
     stop();
     return new Promise((resolve) => {
-      const line = { source: null, spans: [], resolve };
+      const line = { source: null, spans: [], resolve, replyId: ++nextReplyId };
       speech = line;
       const loaded = lines.get(id);
       if (!loaded) { finish(line); return; }
@@ -221,7 +323,7 @@ export function createVoice({ caption, readout }) {
 
   function stop() {
     stopReferenceClip();
-    if (speech) finish(speech);
+    if (speech) finish(speech, true);
     if (reply) finishStream(reply, true);
   }
 
@@ -242,6 +344,8 @@ export function createVoice({ caption, readout }) {
 
   function finishStream(line, interrupted = false) {
     if (line.finished) return;
+    lastEnd = { replyId: line.replyId, reason: interrupted ? 'interrupted' : 'completed',
+      position: streamPosition(line, ac.currentTime).position, cues: line.cues };
     line.finished = true;
     line.interrupted = interrupted;
     for (const source of line.sources) {
@@ -296,6 +400,7 @@ export function createVoice({ caption, readout }) {
 
   function refreshStreamAlignment(line) {
     const alignment = line.alignment;
+    line.cues = buildCueTimeline(line.text, alignment, line.ended);
     // Some replies begin halfway through a leading tag, including its closing
     // bracket but not its opening bracket. Restore just the tag parser state.
     const joined = alignment.characters.join('');
@@ -376,7 +481,8 @@ export function createVoice({ caption, readout }) {
     ensureAudio();
     const line = {
       text: '', words: [], spans: [], shown: 0, shapes: [],
-      alignment: { characters: [], character_start_times_seconds: [] }, alignmentOffset: 0,
+      replyId: ++nextReplyId, cues: [],
+      alignment: { characters: [], character_start_times_seconds: [], character_end_times_seconds: [] }, alignmentOffset: 0,
       envelope: [], rms: Array(12).fill(STREAM_RMS_REFERENCE),
       tail: new Float32Array(0), tailOffset: 0, sampleCount: 0,
       pending: [], sources: new Set(), segments: [], startedAt: null,
@@ -442,6 +548,7 @@ export function createVoice({ caption, readout }) {
           duration = Math.max(duration, start + length);
           line.alignment.characters.push(character);
           line.alignment.character_start_times_seconds.push((line.alignmentOffset + start) / 1000);
+          line.alignment.character_end_times_seconds.push((line.alignmentOffset + start + length) / 1000);
         });
         line.alignmentOffset += duration;
         refreshStreamAlignment(line);
@@ -538,6 +645,18 @@ export function createVoice({ caption, readout }) {
     return { ...shape };
   }
 
+  function currentCues() {
+    if (reply) {
+      const { position, audible } = streamPosition(reply, ac.currentTime);
+      return { replyId: reply.replyId, state: audible ? 'speaking' : 'gap', position, cues: reply.cues };
+    }
+    if (speech) return { replyId: speech.replyId, state: speech.source ? 'speaking' : 'gap',
+      position: speech.source ? Math.max(0, ac.currentTime - speech.startedAt) : 0, cues: speech.data?.cues || [] };
+    return null;
+  }
+
+  function lastReplyEnd() { return lastEnd; }
+
   function setSoundOn(value) {
     soundOn = value;
     if (gainNode) gainNode.gain.setValueAtTime(soundOn ? 1 : 0, ac.currentTime);
@@ -546,5 +665,5 @@ export function createVoice({ caption, readout }) {
   // The simulator reuses the existing preload/cache path, with no extra fetches.
   function getLabLine(id) { return lines.get(id); }
 
-  return { preload, speak, stop, currentEnvelope, currentShape, setSoundOn, update, stream, getLabLine };
+  return { preload, speak, stop, currentEnvelope, currentShape, currentCues, lastReplyEnd, setSoundOn, update, stream, getLabLine };
 }

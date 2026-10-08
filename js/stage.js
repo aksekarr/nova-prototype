@@ -35,6 +35,40 @@ const TUNING = {
   socketLift: 0.3,
   eyePose: 'content',
   poseIntensity: 0,
+  autoExpressions: true,
+  laughAmount: 1,
+  moodAmount: 1,
+  browFlashAmount: 1,
+  // These additions share one accent envelope and the existing pose springs.
+  browFlash: { amount: { browL: 0.35, browR: 0.35, upperLid: -0.15 }, threshold: 0.22,
+    minInterval: 2, chance: 0.5, attack: 0.08, hold: 0.1, release: 0.3 },
+  listening: { pose: 'content', amount: 0.25, attack: 0.8, release: 1 },
+  cueMap: {
+    laugh: { kind: 'laugh', pose: 'laugh', amount: 1 },
+    laughs: { kind: 'laugh', pose: 'laugh', amount: 1 },
+    laughing: { kind: 'laugh', pose: 'laugh', amount: 1 },
+    giggles: { kind: 'laugh', pose: 'laugh', amount: 1 },
+    chuckle: { kind: 'chuckle', pose: 'laugh', amount: 0.5 },
+    chuckles: { kind: 'chuckle', pose: 'laugh', amount: 0.5 },
+    sigh: { kind: 'sigh', pose: 'concern', amount: 0.5 },
+    sighs: { kind: 'sigh', pose: 'concern', amount: 0.5 },
+    curious: { kind: 'mood', pose: 'surprised', amount: 0.3 },
+    thoughtful: { kind: 'mood', pose: 'thinking', amount: 0.5 },
+    thinking: { kind: 'mood', pose: 'thinking', amount: 0.5 },
+    cheerful: { kind: 'mood', pose: 'content', amount: 0.6 },
+    warm: { kind: 'mood', pose: 'content', amount: 0.6 },
+    warmly: { kind: 'mood', pose: 'content', amount: 0.6 },
+    happy: { kind: 'mood', pose: 'content', amount: 0.6 },
+    excited: { kind: 'mood', pose: 'delighted', amount: 0.6 },
+    confidently: { kind: 'mood', pose: 'delighted', amount: 0.25 }
+  },
+  cueTiming: {
+    eventAttack: 0.15, eventRelease: 0.5, laughMinimum: 0.6,
+    laughExtension: 1, followingWordGap: 0.3, sighRelease: 0.8,
+    moodAttack: 0.5, moodRelease: 1, thinkingGaze: 0.8, thinkingGazeRelease: 0.3,
+    questionAttack: 0.15, questionRelease: 0.3, questionPitch: 1.5,
+    interruptRelease: 0.4, replyBlend: 0.4
+  },
   eyePoses: {
     content: {
       smile: 0.45, browL: 0, browR: 0, tilt: 0, upperLid: 0.45,

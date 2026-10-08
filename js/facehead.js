@@ -28,6 +28,7 @@ export function createFaceHead(reduce = false, options = {}) {
   let doubleAt = Infinity, headAmount = 1, rollAmount = 1, nodAmount = 1, blinkRate = 17;
   const motionScale = reduce ? 0.2 : 1;
   const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0 };
+  const beats = [];
   const pose = {
     yaw: 0, pitch: 0, roll: 0, x: 0, y: 0,
     gazeX: 0, gazeY: 0, gazeHold: false, blink: false
@@ -152,6 +153,7 @@ export function createFaceHead(reduce = false, options = {}) {
           && rise > 0.6 && envelopeSmooth - trough > 0.075
           && envelopeSmooth > Math.max(0.18, average + 0.11, average * 1.2)) {
         const strength = clamp((envelopeSmooth - average - 0.09) / 0.45, 0, 1);
+        beats.push({ time, strength });
         // Random ordering with bounded credit keeps the longer-run mix near 45%
         // without long streaks of one direction or a repeating gesture pattern.
         verticalCredit += 0.45;
@@ -244,5 +246,9 @@ export function createFaceHead(reduce = false, options = {}) {
     if (Number.isFinite(tuning.blinkRate)) blinkRate = clamp(tuning.blinkRate, 0, 50);
   }
 
-  return { update, applyTuning, diagnostics };
+  // Draining the queue makes every detected accent a one-time event, including
+  // when an update contains more than one fixed step. No random draw is added.
+  function consumeBeats() { return beats.splice(0); }
+
+  return { update, applyTuning, diagnostics, consumeBeats };
 }

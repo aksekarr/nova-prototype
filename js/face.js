@@ -53,12 +53,284 @@ function lerp(a, b, k) {
 }
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
+// Playback-time envelopes are evaluated afresh when alignment changes. Only
+// retirement belongs to an occurrence: corrected timestamps cannot replay it.
+export function createCueExpressions() {
+  let cueMap = {}, timing = {}, laughAmount = 1, moodAmount = 1;
+  let replyId = null, lastPosition = 0, lastCues = [], release = null, bridge = null;
+  const retired = new Set();
+  const knownEnds = new Map();
+  const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
+  const seconds = (key, fallback) => Number.isFinite(timing[key]) ? Math.max(0, timing[key]) : fallback;
+  const phase = (age, duration) => duration > 0 ? smooth(age / duration) : Number(age >= 0);
+  const blank = () => ({ weights: {}, gazeWeights: {}, questionPitch: 0 });
+  const mix = (a, b, weight) => {
+    const result = blank();
+    for (const field of ['weights', 'gazeWeights']) {
+      for (const name of Object.keys(EXPR)) {
+        const value = (a[field][name] || 0) * (1 - weight) + (b[field][name] || 0) * weight;
+        if (value) result[field][name] = value;
+      }
+    }
+    result.questionPitch = a.questionPitch * (1 - weight) + b.questionPitch * weight;
+    return result;
+  };
+  let output = blank(), channels = { mood: blank(), event: blank(), question: blank() };
+  let eventRemaining = 0, questionRemaining = 0;
+  let blockingEvent = false;
+  const mapCue = cue => cue.type === 'question' ? null : cueMap[cue.name];
+  const valid = mapping => mapping && Object.hasOwn(EXPR, mapping.pose) && Number.isFinite(mapping.amount);
+
+  function sample(position, cues) {
+    blockingEvent = false;
+    const mood = blank(), event = blank(), question = blank();
+    const moods = cues.filter(cue => valid(mapCue(cue)) && mapCue(cue).kind === 'mood')
+      .sort((a, b) => a.start - b.start);
+    let source = blank(), destination = blank(), moodStart = 0;
+    const moodAttack = seconds('moodAttack', 0.5);
+    for (const cue of moods) {
+      if (cue.start > position) break;
+      source = mix(source, destination, phase(cue.start - moodStart, moodAttack));
+      destination = blank();
+      const mapping = mapCue(cue);
+      destination.weights[mapping.pose] = Math.max(0, mapping.amount) * moodAmount;
+      moodStart = cue.start;
+    }
+    Object.assign(mood.weights, mix(source, destination, phase(position - moodStart, moodAttack)).weights);
+    // Only thinking may steer the eyes, and only during its first brief glance.
+    for (const cue of moods) {
+      const mapping = mapCue(cue), age = position - cue.start;
+      const duration = seconds('thinkingGaze', 0.8);
+      const recovery = Math.min(duration, seconds('thinkingGazeRelease', 0.3));
+      if (mapping.pose === 'thinking' && age >= 0 && age < duration) {
+        mood.gazeWeights.thinking = (mood.weights.thinking || 0)
+          * (1 - phase(age - (duration - recovery), recovery));
+      }
+    }
+    let winner = null, strongest = -1;
+    let questionWeight = 0;
+    eventRemaining = questionRemaining = 0;
+    for (let index = 0; index < cues.length; index++) {
+      const cue = cues[index], mapping = mapCue(cue);
+      const isQuestion = cue.type === 'question';
+      if (!isQuestion && (!valid(mapping) || mapping.kind === 'mood')) continue;
+      const id = cue.id ?? `${cue.type || 'tag'}:${index}`;
+      // A correction can arrive on the first frame beyond the previous end.
+      // Retire against that known end before accepting the revised timestamps.
+      if (knownEnds.has(id) && position >= knownEnds.get(id)) retired.add(id);
+      if (retired.has(id)) continue;
+      let end = cue.end, attack, recovery;
+      if (isQuestion) {
+        recovery = seconds('questionRelease', 0.3);
+        // The parser's end includes the question tail; ease out inside it.
+        end = Math.max(cue.start, cue.end - recovery);
+        attack = seconds('questionAttack', 0.15);
+      } else {
+        attack = seconds('eventAttack', 0.15);
+        recovery = mapping.kind === 'sigh' ? seconds('sighRelease', 0.8) : seconds('eventRelease', 0.5);
+        if (mapping.kind !== 'sigh') end = Math.max(end, cue.start + seconds('laughMinimum', 0.6));
+        if (mapping.kind === 'laugh' && Number.isFinite(cue.nextWordStart)
+            && cue.nextWordStart >= cue.end - 1e-6
+            && cue.nextWordStart - cue.end <= seconds('followingWordGap', 0.3)) {
+          end += seconds('laughExtension', 1);
+        }
+      }
+      knownEnds.set(id, end + recovery);
+      if (position >= end + recovery) { retired.add(id); continue; }
+      if (position < cue.start) continue;
+      if (!isQuestion && ['laugh', 'chuckle', 'sigh'].includes(mapping.kind)) blockingEvent = true;
+      const weight = phase(position - cue.start, attack) * (1 - phase(position - end, recovery));
+      if (isQuestion) {
+        if (weight >= questionWeight) {
+          questionWeight = weight;
+          questionRemaining = Math.min(recovery, end + recovery - position);
+        }
+      } else {
+        const strength = weight * Math.max(0, mapping.amount);
+        if (strength > strongest) {
+          strongest = strength;
+          winner = { mapping, weight };
+          eventRemaining = Math.min(recovery, end + recovery - position);
+        }
+      }
+    }
+    if (winner) {
+      const { mapping, weight } = winner;
+      event.weights[mapping.pose] = Math.max(0, mapping.amount) * laughAmount * weight;
+      event.gazeWeights[mapping.pose] = event.weights[mapping.pose];
+      const suppression = clamp(1 - weight, 0, 1);
+      for (const name of Object.keys(mood.weights)) mood.weights[name] *= suppression;
+      for (const name of Object.keys(mood.gazeWeights)) mood.gazeWeights[name] *= suppression;
+    }
+    question.questionPitch = questionWeight * seconds('questionPitch', 1.5);
+    channels = { mood, event, question };
+    return combine(channels);
+  }
+
+  function combine(parts) {
+    const result = blank();
+    for (const part of Object.values(parts)) {
+      for (const field of ['weights', 'gazeWeights']) for (const [name, value] of Object.entries(part[field])) {
+        result[field][name] = (result[field][name] || 0) + value;
+      }
+      result.questionPitch += part.questionPitch;
+    }
+    return result;
+  }
+
+  function beginRelease(end) {
+    // Never evaluate unseen future cues at the end. Freeze the contributions
+    // currently on screen and finish their releases on the animation clock.
+    const interrupted = end?.reason === 'interrupted';
+    const interrupt = seconds('interruptRelease', 0.4);
+    release = { age: 0, parts: channels, durations: {
+      mood: interrupted ? interrupt : seconds('moodRelease', 1),
+      event: interrupted ? interrupt : eventRemaining,
+      question: interrupted ? interrupt : questionRemaining
+    } };
+    bridge = null;
+  }
+
+  function update(dt, cues, ended) {
+    blockingEvent = false;
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    if (cues && cues.replyId !== replyId) {
+      // The outgoing state participates directly in the new reply's attack;
+      // neither the targets nor their spring velocities pass through a reset.
+      bridge = Object.values(output.weights).some(Boolean) || output.questionPitch
+        ? { parts: channels, age: 0, eventRemaining, questionRemaining } : null;
+      release = null;
+      retired.clear();
+      knownEnds.clear();
+      replyId = cues.replyId;
+    } else if (!cues && replyId !== null) {
+      beginRelease(ended?.replyId === replyId ? ended : null);
+      replyId = null;
+    }
+    if (cues) {
+      lastPosition = cues.position;
+      lastCues = cues.cues;
+      output = sample(lastPosition, lastCues);
+      if (bridge) {
+        if (cues.state !== 'gap') bridge.age += step;
+        const blend = phase(bridge.age, seconds('replyBlend', 0.4));
+        for (const name of Object.keys(channels)) channels[name] = mix(bridge.parts[name], channels[name], blend);
+        output = combine(channels);
+        // Preserve each channel's own recovery if even a very short new reply
+        // ends during the handover; questions never inherit the mood release.
+        if (blend < 1) {
+          eventRemaining = Math.max(eventRemaining, bridge.eventRemaining);
+          questionRemaining = Math.max(questionRemaining, bridge.questionRemaining);
+        }
+        if (blend === 1) bridge = null;
+      }
+    } else if (release) {
+      release.age += step;
+      const parts = {};
+      let done = true;
+      for (const [name, part] of Object.entries(release.parts)) {
+        const blend = phase(release.age, release.durations[name]);
+        parts[name] = mix(part, blank(), blend);
+        if (blend < 1) done = false;
+      }
+      channels = parts;
+      eventRemaining = Math.max(0, release.durations.event - release.age);
+      questionRemaining = Math.max(0, release.durations.question - release.age);
+      output = combine(channels);
+      if (done) release = null;
+    } else output = blank();
+    return output;
+  }
+
+  return { update, applyTuning(tuning) {
+    if (tuning.cueMap) cueMap = tuning.cueMap;
+    if (tuning.cueTiming) timing = tuning.cueTiming;
+    if (Number.isFinite(tuning.laughAmount)) laughAmount = clamp(tuning.laughAmount, 0, 2);
+    if (Number.isFinite(tuning.moodAmount)) moodAmount = clamp(tuning.moodAmount, 0, 2);
+  }, reset() {
+    replyId = null; lastPosition = 0; lastCues = []; release = bridge = null;
+    retired.clear(); knownEnds.clear(); output = blank();
+    channels = { mood: blank(), event: blank(), question: blank() };
+  }, get state() { return { replyId, position: lastPosition, output, retired: [...retired], releasing: Boolean(release), blockingEvent }; } };
+}
+
+// This stream belongs only to flashes. Text is hashed at the playback boundary;
+// neither the text nor draws from any existing motion generator are retained.
+export function createBrowFlashes() {
+  let settings = {}, amount = 1, seed = null, randomState = 0, drew = false;
+  let replyId = null, time = 0, lastFlash = -Infinity, lastBeatTime = -Infinity, age = Infinity;
+  const state = { target: 0, active: false, decisions: [], contribution: { browL: 0, browR: 0, upperLid: 0 } };
+  const value = (key, fallback) => Number.isFinite(settings[key]) ? Math.max(0, settings[key]) : fallback;
+  const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const random = () => {
+    randomState = (randomState + 0x6d2b79f5) | 0;
+    let n = Math.imul(randomState ^ randomState >>> 15, 1 | randomState);
+    n ^= n + Math.imul(n ^ n >>> 7, 61 | n);
+    return ((n ^ n >>> 14) >>> 0) / 4294967296;
+  };
+  return { state,
+    setReplyText(text) {
+      if (typeof text !== 'string') { seed = null; return; }
+      let hash = 2166136261;
+      for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+      seed = hash >>> 0;
+      // Live text can arrive after audio. Until it does, no choice is made.
+      if (!drew) randomState = seed;
+    },
+    applyTuning(tuning) {
+      if (tuning.browFlash) settings = tuning.browFlash;
+      if (Number.isFinite(tuning.browFlashAmount)) amount = clamp(tuning.browFlashAmount, 0, 2);
+    },
+    update(dt, cues, blocked, enabled, beats) {
+      time += dt;
+      state.decisions = [];
+      if ((cues?.replyId ?? null) !== replyId) {
+        replyId = cues?.replyId ?? null;
+        randomState = seed ?? 0;
+        drew = false;
+        age = Infinity;
+      }
+      if (!enabled || !cues || blocked || amount === 0) age = Infinity;
+      for (const beat of beats) {
+        if (beat.strength <= value('threshold', 0.22)) continue;
+        let reason = !enabled || amount === 0 ? 'disabled' : !cues || beat.replyId !== replyId ? 'reply-ended'
+          : blocked ? 'event-window' : beat.position < 0.3 ? 'reply-start'
+          : seed === null ? 'awaiting-text'
+          : Math.min(time - lastFlash, beat.time - lastBeatTime) < value('minInterval', 2) ? 'spacing' : '';
+        if (!reason) { drew = true; if (random() >= clamp(value('chance', 0.5), 0, 1)) reason = 'chance'; }
+        if (!reason) { age = 0; lastFlash = time; lastBeatTime = beat.time; }
+        state.decisions.push({ beatTime: beat.position, strength: beat.strength, selected: !reason, reason });
+      }
+      const attack = value('attack', 0.08), hold = value('hold', 0.1), release = value('release', 0.3);
+      const phase = (x, duration) => duration ? smooth(x / duration) : Number(x >= 0);
+      const weight = Number.isFinite(age) ? phase(age, attack) * (1 - phase(age - attack - hold, release)) : 0;
+      state.target = weight * amount;
+      for (const [key, fallback] of [['browL', 0.35], ['browR', 0.35], ['upperLid', -0.15]]) {
+        const gain = settings.amount?.[key];
+        state.contribution[key] = state.target * (Number.isFinite(gain) ? gain : fallback);
+      }
+      state.active = age < attack + hold + release;
+      age += dt;
+      return state.contribution;
+    }
+  };
+}
+
 export function createFace(shapes, reduce) {
   const cur = { ...NEUTRAL_POSE };
   const velocity = { ...NEUTRAL_POSE };
   const rendered = { ...NEUTRAL_POSE, smile: 0.05, eye: 1 };
   const eyePoses = Object.fromEntries(Object.entries(EXPR).map(([name, pose]) => [name, { ...pose }]));
   let selectedPose = 'content', poseIntensity = 0;
+  let autoExpressions = true, preview = false, activeReply = null;
+  let selectionListener = null, selectionKey = '';
+  const automatic = createCueExpressions();
+  const flashes = createBrowFlashes();
+  let beats = [], headTime = 0;
+  let listeningSettings = {}, replyBlend = 0.4;
+  let listeningWeight = 0, listeningTransition = null, listeningBridge = null;
+  const listeningState = { weight: 0, phase: 'off', eligible: false };
+  const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
   const gaze = { x: 0, y: 0 };
   const mouthShape = { w: 1, h: 1, round: 0, close: 0 };
   const mouthInput = { envelope: 0, shape: mouthShape, smile: 0.05, speaking: false };
@@ -70,54 +342,94 @@ export function createFace(shapes, reduce) {
   const follow = createHeadFollow(shapes, motion.phase);
   const diagnostics = { expression: cur, rendered, mouth: mouthInput, gaze,
     pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
-    maxParameterStepKey: '', mapped: mappedFace.diagnostics };
+    maxParameterStepKey: '', mapped: mappedFace.diagnostics,
+    browFlash: flashes.state, listening: listeningState };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
   shapes.headDisplay = follow;
 
-  // Manual controls are installed before main.js binds its readout listeners.
-  // Automatic sequence setExpr calls consequently cannot select a pose.
-  const expressionButtons = [];
-  const readout = typeof document === 'undefined' ? null : document.getElementById('r-expr');
-  const row = typeof document === 'undefined' ? null : document.querySelector('[data-expr]')?.parentElement;
-  if (row) {
-    row.replaceChildren();
-    row.style.maxWidth = 'min(540px, calc(100vw - 48px))';
-    row.style.flexWrap = 'wrap';
-    for (const name of ['neutral', ...Object.keys(EXPR)]) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.dataset.expr = name;
-      button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
-      button.addEventListener('click', () => {
-        if (name !== 'neutral') selectedPose = name;
-        poseIntensity = name === 'neutral' ? 0 : 1;
-        refreshSelection();
-        document.dispatchEvent(new CustomEvent('nova-pose', {
-          detail: { name: selectedPose, intensity: poseIntensity }
-        }));
-      });
-      expressionButtons.push(button);
-      row.append(button);
-    }
-  }
   function refreshSelection() {
-    const active = poseIntensity === 0 ? 'neutral' : selectedPose;
-    const title = active.charAt(0).toUpperCase() + active.slice(1);
-    if (readout && readout.textContent !== title) readout.textContent = title;
-    for (const button of expressionButtons) {
-      const pressed = String(button.dataset.expr === active);
-      if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
+    const active = autoExpressions && !preview
+      ? activeReply !== null || automatic.state.releasing ? 'auto' : listeningWeight > 0 ? 'listening' : 'neutral'
+      : poseIntensity === 0 ? 'neutral' : selectedPose;
+    const key = `${selectedPose}:${poseIntensity}:${active}:${autoExpressions}:${preview}`;
+    if (key !== selectionKey) {
+      selectionKey = key;
+      selectionListener?.({ name: selectedPose, intensity: poseIntensity, active, autoExpressions, preview });
     }
   }
 
-  function update(dt, clock, exprName, envelope, shape, speaking = false) {
+  function setPose(name, intensity = 1) {
+    if (name !== 'neutral' && !Object.hasOwn(eyePoses, name)) return;
+    if (name !== 'neutral') selectedPose = name;
+    poseIntensity = name === 'neutral' ? 0 : clamp(intensity, 0, 1);
+    preview = autoExpressions && activeReply === null && poseIntensity > 0;
+    if (autoExpressions && activeReply === null) automatic.reset();
+    refreshSelection();
+  }
+
+  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false) {
+    const newReply = cues?.replyId !== undefined && cues.replyId !== activeReply;
+    if (newReply) {
+      preview = false;
+      if (autoExpressions && (listeningWeight > 0 || listeningBridge)) {
+        listeningBridge = { source: { ...cur }, age: 0 };
+      }
+      listeningWeight = 0;
+      listeningTransition = null;
+    }
+    activeReply = cues?.replyId ?? null;
+    const blend = automatic.update(dt, cues, ended);
+    diagnostics.cues = blend;
     // Intensity is applied exactly once, to spring targets. Both sculpting and
     // runtime use these same critically damped, exact spring integrations.
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const automaticEnabled = autoExpressions && !preview;
+    const flash = flashes.update(step, cues, automatic.state.blockingEvent, automaticEnabled, beats);
+    // Wait for both the existing cue release and its spring tail. A small
+    // normalized settling threshold avoids waiting for exact floating zero.
+    const settled = !automatic.state.releasing && POSE_CONTROLS.every(([key, , low, high]) =>
+      Math.abs(cur[key]) / (high - low) < 0.002 && Math.abs(velocity[key]) / (high - low) < 0.02);
+    const eligible = automaticEnabled && listening && activeReply === null;
+    if (!automaticEnabled) {
+      listeningWeight = 0; listeningTransition = listeningBridge = null;
+    } else if (activeReply === null) {
+      listeningBridge = null;
+      const target = eligible && (listeningWeight > 0 || settled) ? 1 : 0;
+      if ((!listeningTransition && target !== listeningWeight)
+          || (listeningTransition && listeningTransition.target !== target)) {
+        const key = target ? 'attack' : 'release';
+        listeningTransition = { source: listeningWeight, target, age: 0,
+          duration: Math.max(0, listeningSettings[key] ?? (target ? 0.8 : 1)) };
+      }
+      if (listeningTransition) {
+        const transition = listeningTransition;
+        transition.age += step;
+        const mix = transition.duration ? smooth(transition.age / transition.duration) : 1;
+        listeningWeight = lerp(transition.source, transition.target, mix);
+        if (mix === 1) listeningTransition = null;
+      }
+    }
+    if (listeningBridge && cues?.state !== 'gap') listeningBridge.age += step;
+    const bridgeMix = listeningBridge ? (replyBlend ? smooth(listeningBridge.age / replyBlend) : 1) : 1;
+    Object.assign(listeningState, { weight: listeningWeight, eligible,
+      phase: listeningBridge ? 'handoff' : listeningTransition ? listeningTransition.target ? 'attack' : 'release'
+        : listeningWeight ? 'listening' : eligible ? 'settling' : 'off' });
+    const listeningPose = eyePoses[listeningSettings.pose] || eyePoses.content;
+    const listeningAmount = Number.isFinite(listeningSettings.amount) ? clamp(listeningSettings.amount, 0, 1) : 0.25;
     const frequency = 14, decay = Math.exp(-frequency * step);
     for (const [key, , low, high] of POSE_CONTROLS) {
-      const target = poseIntensity === 0 ? 0 : eyePoses[selectedPose][key] * poseIntensity;
+      let target = 0;
+      if (!autoExpressions || preview) target = poseIntensity === 0 ? 0 : eyePoses[selectedPose][key] * poseIntensity;
+      else {
+        const weights = key === 'gazeX' || key === 'gazeY' ? blend.gazeWeights : blend.weights;
+        for (const [name, weight] of Object.entries(weights)) target += eyePoses[name][key] * weight;
+        if (key === 'headPitch') target += blend.questionPitch;
+        if (listeningWeight && key !== 'gazeX' && key !== 'gazeY') target += listeningPose[key] * listeningAmount * listeningWeight;
+        if (listeningBridge) target = lerp(listeningBridge.source[key], target, bridgeMix);
+        if (flash[key]) target += flash[key];
+      }
+      target = clamp(target, low, high);
       const previous = cur[key], offset = previous - target;
       const tangent = velocity[key] + frequency * offset;
       cur[key] = clamp(target + (offset + tangent * step) * decay, low, high);
@@ -134,7 +446,11 @@ export function createFace(shapes, reduce) {
       rendered[key] = cur[key];
     }
     rendered.smile = 0.05 + cur.smile;
+    if (bridgeMix === 1) listeningBridge = null;
     const pose = head.update(dt, { speaking, envelope, bias: cur });
+    headTime += step;
+    beats = head.consumeBeats().map(beat => ({ ...beat, replyId: activeReply,
+      position: Math.max(0, (cues?.position ?? 0) - (headTime - beat.time)) }));
     gaze.x = pose.gazeX;
     gaze.y = pose.gazeY;
 
@@ -183,15 +499,28 @@ export function createFace(shapes, reduce) {
     refreshSelection();
   }
 
-  return { update, diagnostics, applyTuning(tuning) {
+  return { update, diagnostics, setPose, setReplyText: flashes.setReplyText, onSelectionChange(listener) {
+    selectionListener = listener;
+    selectionKey = '';
+    refreshSelection();
+  }, applyTuning(tuning) {
     for (const name of Object.keys(eyePoses)) {
       const values = tuning.eyePoses?.[name];
       if (values) for (const [key, , low, high] of POSE_CONTROLS) {
         eyePoses[name][key] = Number.isFinite(values[key]) ? clamp(values[key], low, high) : EXPR[name][key];
       }
     }
-    if (Object.hasOwn(eyePoses, tuning.eyePose)) selectedPose = tuning.eyePose;
-    if (Number.isFinite(tuning.poseIntensity)) poseIntensity = clamp(tuning.poseIntensity, 0, 1);
+    const nextPose = Object.hasOwn(eyePoses, tuning.eyePose) ? tuning.eyePose : selectedPose;
+    const nextIntensity = Number.isFinite(tuning.poseIntensity) ? clamp(tuning.poseIntensity, 0, 1) : poseIntensity;
+    if (typeof tuning.autoExpressions === 'boolean' && tuning.autoExpressions !== autoExpressions) {
+      autoExpressions = tuning.autoExpressions;
+      preview = false;
+    }
+    if (nextPose !== selectedPose || nextIntensity !== poseIntensity) setPose(nextPose, nextIntensity);
+    automatic.applyTuning(tuning);
+    flashes.applyTuning(tuning);
+    if (tuning.listening) listeningSettings = tuning.listening;
+    if (Number.isFinite(tuning.cueTiming?.replyBlend)) replyBlend = Math.max(0, tuning.cueTiming.replyBlend);
     // Legacy flat imports remain readable. Complete nested definitions are
     // authoritative, so another pose's editing mirror can never leak into one.
     if (!tuning.eyePoses?.[selectedPose]) {

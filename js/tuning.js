@@ -44,6 +44,9 @@ const FLANGER_CONTROLS = [
 ];
 
 const HEAD_CONTROLS = [
+  ['laughAmount', 'Laugh amount', 0, 2, 0.01],
+  ['moodAmount', 'Mood amount', 0, 2, 0.01],
+  ['browFlashAmount', 'Brow flash amount', 0, 2, 0.01],
   ['headAmount', 'Head amount', 0, 2, 0.01],
   ['nodAmount', 'Nod amount', 0, 2, 0.01],
   ['rollAmount', 'Roll amount', 0, 2, 0.01],
@@ -104,7 +107,7 @@ export function createTuningPanel(tuning, onChange, speechLab) {
     refreshJSON();
     status.textContent = '';
     onChange(tuning, key);
-  }));
+  }, refreshJSON));
 
   for (const [key, labelText, min, max, step] of CONTROLS) {
     const label = document.createElement('label');
@@ -161,7 +164,7 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   return panel;
 }
 
-function createEyes(tuning, onChange) {
+function createEyes(tuning, onChange, onSelectionSync) {
   const group = document.createElement('div');
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', 'Eyes');
@@ -202,12 +205,10 @@ function createEyes(tuning, onChange) {
 
   function selectPose(name) {
     if (!names.includes(name)) return;
-    tuning.eyePose = name;
-    // A click previews the chosen pose; later intensity edits are never baked
-    // into its sculpt values. Rendering applies intensity in face.js once.
-    if (tuning.poseIntensity === 0) tuning.poseIntensity = 1;
-    refreshPose();
-    onChange('eyePose');
+    // Explicit clicks can restart a preview after a reply, including another
+    // click on the same pose. Main owns selection and the expression readout.
+    const intensity = tuning.autoExpressions || tuning.poseIntensity === 0 ? 1 : tuning.poseIntensity;
+    document.dispatchEvent(new CustomEvent('nova-pose-select', { detail: { name, intensity } }));
   }
 
   const poses = document.createElement('div');
@@ -256,14 +257,14 @@ function createEyes(tuning, onChange) {
     label.append(name, value, input);
     group.append(label);
   }
-  // Only explicit manual selections sync this panel. Playback's legacy
-  // expression labels cannot replace a sculpted pose.
+  // This is a one-way UI sync. Feeding it back through applyTuning would
+  // accidentally revive a manual preview when speech clears it.
   document.addEventListener('nova-pose', event => {
     const { name, intensity } = event.detail;
     if (names.includes(name)) tuning.eyePose = name;
     if (Number.isFinite(intensity)) tuning.poseIntensity = intensity;
     refreshPose();
-    onChange('eyePose');
+    onSelectionSync();
   });
   refreshPose();
   return group;
@@ -278,6 +279,21 @@ function createHeadEyes(tuning, onChange) {
   heading.setAttribute('role', 'heading');
   heading.setAttribute('aria-level', '3');
   group.append(heading);
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'tuning-footer';
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.id = 'tuning-autoExpressions';
+  toggle.checked = tuning.autoExpressions;
+  const toggleText = document.createElement('span');
+  toggleText.textContent = 'Auto expressions';
+  toggle.addEventListener('input', () => {
+    tuning.autoExpressions = toggle.checked;
+    onChange('autoExpressions');
+  });
+  toggleLabel.append(toggle, toggleText);
+  group.append(toggleLabel);
 
   for (const [key, labelText, min, max, step] of HEAD_CONTROLS) {
     const label = document.createElement('label');
@@ -437,6 +453,15 @@ function createSpeechLab(speechLab) {
   const slowText = document.createElement('span');
   slowText.textContent = 'Slow network';
   slowLabel.append(slow, slowText);
+  const listeningLabel = document.createElement('label');
+  listeningLabel.className = 'tuning-footer';
+  const listening = document.createElement('input');
+  listening.type = 'checkbox';
+  listening.id = 'speech-lab-listening';
+  const listeningText = document.createElement('span');
+  listeningText.textContent = 'Preview listening';
+  listening.addEventListener('input', () => speechLab.setPreviewListening(listening.checked));
+  listeningLabel.append(listening, listeningText);
   const actions = document.createElement('div');
   actions.className = 'tuning-footer';
   actions.style.gridColumn = '1 / -1';
@@ -471,7 +496,7 @@ function createSpeechLab(speechLab) {
   captureActions.className = 'tuning-footer';
   captureActions.style.gridColumn = '1 / -1';
   captureActions.append(replay);
-  lab.append(label, select, actions, slowLabel, captureLabel, captureFile, captureSelect, captureActions, status);
+  lab.append(label, select, actions, slowLabel, listeningLabel, captureLabel, captureFile, captureSelect, captureActions, status);
 
   let linesReady = false, captureLoading = false;
   let capturedReplies = [], captureLoadRequest = 0;
