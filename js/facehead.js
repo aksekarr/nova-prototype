@@ -7,9 +7,9 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export function createFaceHead(reduce = false, options = {}) {
   const random = options.random ?? Math.random;
   const between = (low, high) => low + random() * (high - low);
-  // yaw, resting pitch, roll, nod, gaze x/y, speaking blend, tuning gain
-  const position = new Float64Array(8), velocity = new Float64Array(8);
-  position[7] = 1;
+  // yaw, resting pitch, roll, nod, gaze x/y, speaking blend, head/roll gains
+  const position = new Float64Array(9), velocity = new Float64Array(9);
+  position[7] = position[8] = 1;
   const history = new Float64Array(HISTORY);
   let historyIndex = 0, historySum = 0, sampleTime = 0, sampleSum = 0;
   let time = 0, wasSpeaking = false, envelopeSmooth = 0;
@@ -24,7 +24,7 @@ export function createFaceHead(reduce = false, options = {}) {
   let microX = 0, microY = 0, idleX = 0, idleY = 0, nextGaze = 0;
   let glanceUntil = 0, glanceYaw = 0, glanceX = 0, glanceY = 0;
   let lastBlink = -10, blinkCredit = 0, blinkThreshold = between(0.85, 1.15);
-  let doubleAt = Infinity, headAmount = 1, nodAmount = 1, blinkRate = 17;
+  let doubleAt = Infinity, headAmount = 1, rollAmount = 1, nodAmount = 1, blinkRate = 17;
   const motionScale = reduce ? 0.2 : 1;
   const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0 };
   const pose = {
@@ -44,7 +44,7 @@ export function createFaceHead(reduce = false, options = {}) {
     let nextSpeed = decay * (speed * cosine - (decayRate * speed + frequency * frequency * offset) / oscillation * sine);
     if (index === 2) {
       // Limit the rendered angle itself, including tuning and mode changes.
-      const speedLimit = 12 * motionScale, angleLimit = 3 * motionScale;
+      const speedLimit = 6 * motionScale, angleLimit = 1.5 * motionScale;
       next = clamp(next, position[index] - speedLimit * dt, position[index] + speedLimit * dt);
       next = clamp(next, -angleLimit, angleLimit);
       nextSpeed = clamp(nextSpeed, -speedLimit, speedLimit);
@@ -86,7 +86,7 @@ export function createFaceHead(reduce = false, options = {}) {
       if (random() < 0.4) {
         const side = random() < 0.5 ? -1 : 1;
         glanceUntil = time + between(0.5, 1);
-        glanceYaw = side * between(4, 6);
+        glanceYaw = side * between(8, 10);
         glanceX = side * between(0.45, 0.55);
         glanceY = between(0.2, 0.4);
         diagnostics.glances++;
@@ -104,6 +104,7 @@ export function createFaceHead(reduce = false, options = {}) {
       time += step;
       spring(6, speaking ? 1 : 0, step, 17, 0.99);
       spring(7, headAmount, step, 17, 0.99);
+      spring(8, rollAmount, step, 17, 0.99);
       const blend = clamp(position[6], 0, 1);
       const gain = Math.max(0, position[7]) * motionScale;
       const previousEnvelope = envelopeSmooth;
@@ -157,12 +158,12 @@ export function createFaceHead(reduce = false, options = {}) {
         if (vertical) {
           // Keep the settled roll so this beat reads as a chin dip or lift.
           // A fresh roll target here would turn the vertical gesture into a tilt.
-          startNod((random() < 0.5 ? -1 : 1) * Math.min(2, 1 + 1.5 * strength), false);
+          startNod((random() < 0.5 ? -1 : 1) * (1.5 + strength), false);
           diagnostics.verticalBeats++;
         } else {
           startNod(1 + 1.5 * strength, false);
           const side = speakingRoll === 0 ? (random() < 0.5 ? -1 : 1) : -Math.sign(speakingRoll);
-          speakingRoll = side * between(0.85, 2);
+          speakingRoll = side * between(0.425, 1);
         }
         lastBeat = time;
         beatArmed = false;
@@ -189,14 +190,14 @@ export function createFaceHead(reduce = false, options = {}) {
         blinkOpportunity = true;
       }
       const glancing = speaking && time < glanceUntil;
-      const driftingYaw = Math.sin(yawPhase) * (1.5 + blend);
+      const driftingYaw = Math.sin(yawPhase) * (3 + 2 * blend);
       const yawTarget = glancing ? glanceYaw : speaking && phraseEnded ? heldYaw : driftingYaw;
       const pitchTarget = speaking && phraseEnded ? heldPitch : Math.sin(pitchPhase) * 1.2;
       const rollTarget = (speaking && phraseEnded ? heldRoll : speakingRoll) * blend
-        + Math.sin(idlePhase) * 0.8 * (1 - blend);
+        + Math.sin(idlePhase) * 0.4 * (1 - blend);
       spring(0, yawTarget * gain, step);
-      spring(1, (Math.sin(idlePhase + 1.1) * 0.6 * (1 - blend) + pitchTarget * blend) * gain, step);
-      spring(2, clamp(rollTarget * gain, -2.9 * motionScale, 2.9 * motionScale), step, 12);
+      spring(1, (Math.sin(idlePhase + 1.1) * 0.8 * (1 - blend) + pitchTarget * blend) * gain, step);
+      spring(2, clamp(rollTarget * gain * Math.max(0, position[8]), -1.45 * motionScale, 1.45 * motionScale), step, 12);
       spring(3, time < nodUntil ? nodTarget * gain * nodAmount : 0, step, 20);
       spring(4, glancing ? glanceX : idleX * (1 - blend) + microX * blend, step, 17);
       spring(5, glancing ? glanceY : idleY * (1 - blend) + microY * blend, step, 17);
@@ -219,6 +220,7 @@ export function createFaceHead(reduce = false, options = {}) {
 
   function applyTuning(tuning) {
     if (Number.isFinite(tuning.headAmount)) headAmount = clamp(tuning.headAmount, 0, 2);
+    if (Number.isFinite(tuning.rollAmount)) rollAmount = clamp(tuning.rollAmount, 0, 2);
     if (Number.isFinite(tuning.nodAmount)) nodAmount = clamp(tuning.nodAmount, 0, 2);
     if (Number.isFinite(tuning.blinkRate)) blinkRate = clamp(tuning.blinkRate, 0, 50);
   }

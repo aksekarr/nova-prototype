@@ -44,7 +44,11 @@ const FLANGER_CONTROLS = [
 const HEAD_CONTROLS = [
   ['headAmount', 'Head amount', 0, 2, 0.01],
   ['nodAmount', 'Nod amount', 0, 2, 0.01],
-  ['followSpread', 'Follow spread', 0, 2, 0.01],
+  ['rollAmount', 'Roll amount', 0, 2, 0.01],
+  ['headDepth', 'Head depth', 1, 4, 0.01],
+  ['swarm', 'Swarm', 0, 2, 0.01],
+  ['swarmCoherence', 'Swarm coherence', 0, 1, 0.01],
+  ['surroundWeight', 'Surround weight', 0, 1, 0.01],
   ['blinkRate', 'Blinks per minute', 0, 30, 1],
 ];
 
