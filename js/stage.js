@@ -33,11 +33,58 @@ const TUNING = {
   irisSoftness: 0.5,
   irisWarmth: 0.5,
   socketLift: 0.3,
-  upperLid: 0,
-  lowerLid: 0,
-  slant: 0,
-  browKnit: 0,
-  eyeAsym: 0,
+  eyePose: 'content',
+  poseIntensity: 0,
+  eyePoses: {
+    content: {
+      smile: 0.45, browL: 0, browR: 0, tilt: 0, upperLid: 0.45,
+      lowerLid: 0.25, slant: 0, browKnit: 0, browAngle: -0.1, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: -0.3, headYaw: 0,
+      headPitch: -1, headRoll: 1, gazeX: 0, gazeY: 0
+    },
+    delighted: {
+      smile: 0.85, browL: 0.6, browR: 0.6, tilt: 0, upperLid: -0.6,
+      lowerLid: 0.2, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0.25, mouthRound: 0, mouthPress: 0, squashStretch: 0.2, headYaw: 0,
+      headPitch: 2, headRoll: 0, gazeX: 0, gazeY: 0
+    },
+    laugh: {
+      smile: 1, browL: 0.2, browR: 0.2, tilt: 0, upperLid: 0.6,
+      lowerLid: 1, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0.5, mouthRound: 0, mouthPress: 0, squashStretch: -1, headYaw: 0,
+      headPitch: 4, headRoll: 0, gazeX: 0, gazeY: 0
+    },
+    cheeky: {
+      smile: 0.4, browL: 0, browR: 0, tilt: 0.3, upperLid: 0.35,
+      lowerLid: 0.2, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: 0, headRoll: -2, gazeX: 0.6, gazeY: 0
+    },
+    skeptical: {
+      smile: -0.1, browL: -0.5, browR: 0.4, tilt: 0, upperLid: 0.3,
+      lowerLid: 0, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0.3,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: -1, headRoll: 2, gazeX: -0.5, gazeY: 0
+    },
+    thinking: {
+      smile: -0.05, browL: -0.35, browR: -0.35, tilt: 0, upperLid: 0.4,
+      lowerLid: 0.35, slant: 0, browKnit: 0.8, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0.5, squashStretch: 0, headYaw: 0,
+      headPitch: -2, headRoll: 0, gazeX: 0, gazeY: -0.15
+    },
+    surprised: {
+      smile: 0, browL: 0.8, browR: 0.8, tilt: 0, upperLid: -1,
+      lowerLid: 0, slant: 0, browKnit: 0, browAngle: -0.2, eyeAsym: 0,
+      mouthOpen: 0.35, mouthRound: 0.6, mouthPress: 0, squashStretch: 0.85, headYaw: 0,
+      headPitch: 2, headRoll: 0, gazeX: 0, gazeY: 0
+    },
+    concern: {
+      smile: -0.1, browL: 0.15, browR: 0.15, tilt: 0, upperLid: 0.3,
+      lowerLid: 0.1, slant: 0, browKnit: 0.2, browAngle: -0.7, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: -1, headRoll: 2, gazeX: 0, gazeY: 0
+    },
+  },
   dissolveAmount: 1,
   definition: 1,
   brightnessFloor: 0.025,

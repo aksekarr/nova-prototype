@@ -1,4 +1,4 @@
-import { EXPR, EYE_SHAPE_KEYS } from './face.js';
+import { EXPR, POSE_KEYS, POSE_CONTROLS } from './face.js';
 
 const CONTROLS = [
   ['definition', 'Definition', 0, 1, 0.01],
@@ -59,11 +59,7 @@ const EYE_CONTROLS = [
   ['irisSoftness', 'Iris softness', 0, 1, 0.01],
   ['irisWarmth', 'Iris warmth', 0, 1, 0.01],
   ['socketLift', 'Socket lift', 0, 1, 0.01],
-  ['upperLid', 'Upper lid', -1, 1, 0.01],
-  ['lowerLid', 'Lower lid', 0, 1, 0.01],
-  ['slant', 'Slant', -1, 1, 0.01],
-  ['browKnit', 'Brow knit', -1, 1, 0.01],
-  ['eyeAsym', 'Eye asymmetry', -1, 1, 0.01],
+
 ];
 
 export function createTuningPanel(tuning, onChange, speechLab) {
@@ -175,34 +171,48 @@ function createEyes(tuning, onChange) {
   heading.setAttribute('aria-level', '3');
   group.append(heading);
 
-  const names = Object.keys(EXPR);
-  const shapeKeys = new Set(EYE_SHAPE_KEYS);
-  const expressionButtons = Array.from(document.querySelectorAll('[data-expr]'));
-  const activeExpression = () => expressionButtons.find(button =>
-    button.getAttribute('aria-pressed') === 'true')?.dataset.expr;
+  const names = Object.keys(EXPR), poseKeys = new Set(POSE_KEYS);
   tuning.eyePoses = Object.fromEntries(names.map(name =>
-    [name, { ...EXPR[name], ...tuning.eyePoses?.[name] }]));
+    [name, Object.fromEntries(POSE_CONTROLS.map(([key, , min, max]) =>
+      [key, Math.max(min, Math.min(max, Number.isFinite(tuning.eyePoses?.[name]?.[key])
+        ? tuning.eyePoses[name][key] : EXPR[name][key]))]))]));
+  tuning.eyePose = names.includes(tuning.eyePose) ? tuning.eyePose : names[0];
+  tuning.poseIntensity = Number.isFinite(tuning.poseIntensity)
+    ? Math.max(0, Math.min(1, tuning.poseIntensity)) : 0;
   const controls = new Map(), poseButtons = new Map();
 
-  function selectPose(name) {
-    if (!names.includes(name)) return;
-    tuning.eyePose = name;
-    for (const key of EYE_SHAPE_KEYS) {
+  function refreshPose() {
+    for (const key of POSE_KEYS) {
       const control = controls.get(key);
-      tuning[key] = tuning.eyePoses[name][key];
+      tuning[key] = tuning.eyePoses[tuning.eyePose][key];
       if (control) {
         control.input.value = tuning[key];
         control.value.value = control.input.value;
       }
     }
-    for (const [pose, button] of poseButtons) {
-      button.setAttribute('aria-pressed', String(pose === name));
+    const intensity = controls.get('poseIntensity');
+    if (intensity) {
+      intensity.input.value = tuning.poseIntensity;
+      intensity.value.value = intensity.input.value;
     }
+    for (const [pose, button] of poseButtons) {
+      button.setAttribute('aria-pressed', String(pose === tuning.eyePose));
+    }
+  }
+
+  function selectPose(name) {
+    if (!names.includes(name)) return;
+    tuning.eyePose = name;
+    // A click previews the chosen pose; later intensity edits are never baked
+    // into its sculpt values. Rendering applies intensity in face.js once.
+    if (tuning.poseIntensity === 0) tuning.poseIntensity = 1;
+    refreshPose();
     onChange('eyePose');
   }
 
   const poses = document.createElement('div');
   poses.className = 'row tuning-footer';
+  poses.style.flexWrap = 'wrap';
   poses.setAttribute('role', 'group');
   poses.setAttribute('aria-label', 'Eye poses');
   for (const name of names) {
@@ -210,16 +220,18 @@ function createEyes(tuning, onChange) {
     button.type = 'button';
     button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
     button.setAttribute('aria-label', `Eye pose ${name}`);
-    button.addEventListener('click', () => {
-      expressionButtons.find(expression => expression.dataset.expr === name)?.click();
-      selectPose(name);
-    });
+    button.addEventListener('click', () => selectPose(name));
     poseButtons.set(name, button);
     poses.append(button);
   }
   group.append(poses);
 
-  for (const [key, labelText, min, max, step] of EYE_CONTROLS) {
+  const help = document.createElement('p');
+  help.textContent = 'Intensity 0 is neutral. Sliders sculpt the selected pose at full intensity. Tilt slopes both brows in the same screen direction; brow angle makes a V or worried slope.';
+  group.append(help);
+  const allControls = [['poseIntensity', 'Pose intensity', 0, 1, 0.01],
+    ...POSE_CONTROLS, ...EYE_CONTROLS];
+  for (const [key, labelText, min, max, step] of allControls) {
     const label = document.createElement('label');
     label.className = 'tuning-control';
     const name = document.createElement('span');
@@ -231,12 +243,12 @@ function createEyes(tuning, onChange) {
     input.min = min;
     input.max = max;
     input.step = step;
-    input.value = tuning[key];
+    input.value = poseKeys.has(key) ? tuning.eyePoses[tuning.eyePose][key] : tuning[key];
     value.htmlFor = input.id;
     value.value = input.value;
     input.addEventListener('input', () => {
       tuning[key] = Number(input.value);
-      if (shapeKeys.has(key)) tuning.eyePoses[tuning.eyePose][key] = tuning[key];
+      if (poseKeys.has(key)) tuning.eyePoses[tuning.eyePose][key] = tuning[key];
       value.value = input.value;
       onChange(key);
     });
@@ -244,17 +256,16 @@ function createEyes(tuning, onChange) {
     label.append(name, value, input);
     group.append(label);
   }
-
-  // Sequences and the original expression buttons share these same pose edits.
-  // The extra buttons deliberately do not join main.js's data-expr controls.
-  const observer = new MutationObserver(() => {
-    const name = activeExpression();
-    if (name && name !== tuning.eyePose) selectPose(name);
+  // Only explicit manual selections sync this panel. Playback's legacy
+  // expression labels cannot replace a sculpted pose.
+  document.addEventListener('nova-pose', event => {
+    const { name, intensity } = event.detail;
+    if (names.includes(name)) tuning.eyePose = name;
+    if (Number.isFinite(intensity)) tuning.poseIntensity = intensity;
+    refreshPose();
+    onChange('eyePose');
   });
-  for (const button of expressionButtons) {
-    observer.observe(button, { attributes: true, attributeFilter: ['aria-pressed'] });
-  }
-  selectPose(activeExpression() || tuning.eyePose || 'neutral');
+  refreshPose();
   return group;
 }
 

@@ -2,81 +2,198 @@ import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 
-export const EYE_SHAPE_KEYS = ['upperLid', 'lowerLid', 'slant', 'browKnit', 'eyeAsym'];
+// Pose values are additional contributions. The photographed neutral keeps its
+// existing 0.05 smile and eye openness of 1; neither is baked into the sliders.
+export const POSE_CONTROLS = [
+  ['upperLid', 'Upper lid', -1, 1, 0.01],
+  ['lowerLid', 'Lower lid', 0, 1, 0.01],
+  ['slant', 'Eye slant', -1, 1, 0.01],
+  ['eyeAsym', 'Eye asymmetry', -1, 1, 0.01],
+  ['browL', 'Left brow', -1, 1, 0.01],
+  ['browR', 'Right brow', -1, 1, 0.01],
+  ['tilt', 'Asymmetric brow tilt', -1, 1, 0.01],
+  ['browKnit', 'Brow knit (horizontal)', -1, 1, 0.01],
+  ['browAngle', 'Brow angle (vertical)', -1, 1, 0.01],
+  ['smile', 'Smile', -1, 1, 0.01],
+  ['mouthOpen', 'Mouth opening', 0, 1, 0.01],
+  ['mouthRound', 'Mouth rounding', 0, 1, 0.01],
+  ['mouthPress', 'Lip pressure', 0, 1, 0.01],
+  ['squashStretch', 'Squash / stretch', -1, 1, 0.01],
+  ['headYaw', 'Head yaw (degrees)', -10, 10, 0.1],
+  ['headPitch', 'Head pitch (degrees)', -6, 6, 0.1],
+  ['headRoll', 'Head roll (degrees)', -3, 3, 0.1],
+  ['gazeX', 'Gaze horizontal', -1, 1, 0.01],
+  ['gazeY', 'Gaze vertical', -1, 1, 0.01]
+];
+export const POSE_KEYS = POSE_CONTROLS.map(([key]) => key);
+export const EYE_SHAPE_KEYS = ['upperLid', 'lowerLid', 'slant', 'browKnit', 'browAngle', 'eyeAsym'];
+export const NEUTRAL_POSE = Object.freeze(Object.fromEntries(POSE_KEYS.map(key => [key, 0])));
+const completePose = values => ({ ...NEUTRAL_POSE, ...values });
 export const EXPR = {
-  neutral:  { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1, gx: null, gy: null,
-    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
-  warm:     { smile: 0.55, browL: 0.08, browR: 0.08, tilt: 0, eye: 0.78, gx: null, gy: null,
-    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
-  curious:  { smile: 0.12, browL: 0.34, browR: -0.02, tilt: 0.1, eye: 1.08, gx: null, gy: null,
-    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 },
-  thinking: { smile: -0.12, browL: -0.08, browR: 0.2, tilt: -0.08, eye: 0.9, gx: -1, gy: 1,
-    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 }
+  content: completePose({ upperLid: 0.45, lowerLid: 0.25, smile: 0.45, browAngle: -0.1,
+    squashStretch: -0.3, headRoll: 1, headPitch: -1 }),
+  delighted: completePose({ upperLid: -0.6, lowerLid: 0.2, browL: 0.6, browR: 0.6,
+    smile: 0.85, mouthOpen: 0.25, squashStretch: 0.2, headPitch: 2 }),
+  laugh: completePose({ upperLid: 0.6, lowerLid: 1, browL: 0.2, browR: 0.2,
+    smile: 1, mouthOpen: 0.5, squashStretch: -1, headPitch: 4 }),
+  cheeky: completePose({ upperLid: 0.35, lowerLid: 0.2, smile: 0.4, tilt: 0.3,
+    gazeX: 0.6, headRoll: -2 }),
+  skeptical: completePose({ browL: -0.5, browR: 0.4, upperLid: 0.3, eyeAsym: 0.3,
+    smile: -0.1, gazeX: -0.5, headRoll: 2, headPitch: -1 }),
+  thinking: completePose({ browKnit: 0.8, browAngle: 0, browL: -0.35, browR: -0.35,
+    upperLid: 0.4, lowerLid: 0.35, mouthPress: 0.5, smile: -0.05, gazeY: -0.15, headPitch: -2 }),
+  surprised: completePose({ upperLid: -1, browL: 0.8, browR: 0.8, browAngle: -0.2,
+    mouthOpen: 0.35, mouthRound: 0.6, squashStretch: 0.85, headPitch: 2 }),
+  concern: completePose({ browAngle: -0.7, browKnit: 0.2, browL: 0.15, browR: 0.15,
+    upperLid: 0.3, lowerLid: 0.1, smile: -0.1, headRoll: 2, headPitch: -1 })
 };
 
 function lerp(a, b, k) {
   return a + (b - a) * k;
 }
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
 export function createFace(shapes, reduce) {
-  const cur = { smile: 0.05, browL: 0, browR: 0, tilt: 0, eye: 1,
-    upperLid: 0, lowerLid: 0, slant: 0, browKnit: 0, eyeAsym: 0 };
+  const cur = { ...NEUTRAL_POSE };
+  const velocity = { ...NEUTRAL_POSE };
+  const rendered = { ...NEUTRAL_POSE, smile: 0.05, eye: 1 };
   const eyePoses = Object.fromEntries(Object.entries(EXPR).map(([name, pose]) => [name, { ...pose }]));
-  let currentExpression = 'neutral';
+  let selectedPose = 'content', poseIntensity = 0;
   const gaze = { x: 0, y: 0 };
-  const fixedGaze = { x: 0, y: 0, mix: 0 };
+  const mouthShape = { w: 1, h: 1, round: 0, close: 0 };
+  const mouthInput = { envelope: 0, shape: mouthShape, smile: 0.05, speaking: false };
   let blinkAge = Infinity, blinkV = 1;
   const mappedFace = createMappedFace(shapes, reduce);
   const motion = createFaceMotion(shapes, reduce);
   const head = createFaceHead(reduce);
   const follow = createHeadFollow(shapes, motion.phase);
-  // Stage applies head motion after intrinsic particle easing.
+  const diagnostics = { expression: cur, rendered, mouth: mouthInput, gaze,
+    pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
+    maxParameterStepKey: '', mapped: mappedFace.diagnostics };
+  // Stage applies the local expression deformation and head motion only after
+  // intrinsic particle easing; the simulation never receives this display copy.
   shapes.headDisplay = follow;
 
-  function update(dt, clock, exprName, envelope, shape, speaking = false) {
-    const tgt = EXPR[exprName], k = 1 - Math.pow(0.04, dt);
-    currentExpression = exprName;
-    cur.smile = lerp(cur.smile, tgt.smile, k);
-    cur.browL = lerp(cur.browL, tgt.browL, k);
-    cur.browR = lerp(cur.browR, tgt.browR, k);
-    cur.tilt = lerp(cur.tilt, tgt.tilt, k);
-    cur.eye = lerp(cur.eye, tgt.eye, k);
-    for (const key of EYE_SHAPE_KEYS) cur[key] = lerp(cur[key], eyePoses[exprName][key], k);
+  // Manual controls are installed before main.js binds its readout listeners.
+  // Automatic sequence setExpr calls consequently cannot select a pose.
+  const expressionButtons = [];
+  const readout = typeof document === 'undefined' ? null : document.getElementById('r-expr');
+  const row = typeof document === 'undefined' ? null : document.querySelector('[data-expr]')?.parentElement;
+  if (row) {
+    row.replaceChildren();
+    row.style.maxWidth = 'min(540px, calc(100vw - 48px))';
+    row.style.flexWrap = 'wrap';
+    for (const name of ['neutral', ...Object.keys(EXPR)]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.expr = name;
+      button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+      button.addEventListener('click', () => {
+        if (name !== 'neutral') selectedPose = name;
+        poseIntensity = name === 'neutral' ? 0 : 1;
+        refreshSelection();
+        document.dispatchEvent(new CustomEvent('nova-pose', {
+          detail: { name: selectedPose, intensity: poseIntensity }
+        }));
+      });
+      expressionButtons.push(button);
+      row.append(button);
+    }
+  }
+  function refreshSelection() {
+    const active = poseIntensity === 0 ? 'neutral' : selectedPose;
+    const title = active.charAt(0).toUpperCase() + active.slice(1);
+    if (readout && readout.textContent !== title) readout.textContent = title;
+    for (const button of expressionButtons) {
+      const pressed = String(button.dataset.expr === active);
+      if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
+    }
+  }
 
-    const pose = head.update(dt, { speaking, envelope });
-    // Head gaze is already spring-smoothed; only the expression override needs
-    // the existing soft handoff, so normal eyes do not acquire a second lag.
-    const gazeRate = 1 - Math.pow(0.002, dt);
-    if (tgt.gx !== null) { fixedGaze.x = tgt.gx; fixedGaze.y = tgt.gy; }
-    fixedGaze.mix = lerp(fixedGaze.mix, tgt.gx !== null ? 1 : 0, gazeRate);
-    gaze.x = lerp(pose.gazeX, fixedGaze.x, fixedGaze.mix);
-    gaze.y = lerp(pose.gazeY, fixedGaze.y, fixedGaze.mix);
+  function update(dt, clock, exprName, envelope, shape, speaking = false) {
+    // Intensity is applied exactly once, to spring targets. Both sculpting and
+    // runtime use these same critically damped, exact spring integrations.
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const frequency = 14, decay = Math.exp(-frequency * step);
+    for (const [key, , low, high] of POSE_CONTROLS) {
+      const target = poseIntensity === 0 ? 0 : eyePoses[selectedPose][key] * poseIntensity;
+      const previous = cur[key], offset = previous - target;
+      const tangent = velocity[key] + frequency * offset;
+      cur[key] = clamp(target + (offset + tangent * step) * decay, low, high);
+      velocity[key] = (velocity[key] - frequency * tangent * step) * decay;
+      if (Math.abs(cur[key] - target) < 1e-8 && Math.abs(velocity[key]) < 1e-7) {
+        cur[key] = target; velocity[key] = 0;
+      }
+      const change = Math.abs(cur[key] - previous);
+      if (change > diagnostics.maxParameterStep) {
+        diagnostics.maxParameterStep = change;
+        diagnostics.maxParameterStepDt = step;
+        diagnostics.maxParameterStepKey = key;
+      }
+      rendered[key] = cur[key];
+    }
+    rendered.smile = 0.05 + cur.smile;
+    const pose = head.update(dt, { speaking, envelope, bias: cur });
+    gaze.x = pose.gazeX;
+    gaze.y = pose.gazeY;
 
     blinkAge = pose.blink ? 0 : blinkAge + dt;
     blinkV = blinkAge < 0.16 ? 1 - 0.92 * Math.sin(Math.PI * blinkAge / 0.16) : 1;
 
-    mappedFace.update(clock, cur, gaze, blinkV, envelope, shape);
+    // Existing inputs support silent opening, narrowing/rounding and lip press.
+    // During speech preserve the exact audio envelope and all four articulation
+    // channels. No additive opening bias can reopen an m/b/p closure. Smile is
+    // a corner/width warp, not a new aperture; remove it when closure is cued.
+    mouthShape.w = shape.w;
+    mouthShape.h = shape.h;
+    mouthShape.round = shape.round;
+    mouthShape.close = shape.close;
+    let mouthEnvelope = envelope;
+    if (speaking) {
+      const closure = clamp(shape.close / 0.1, 0, 1);
+      const closureGuard = closure * closure * (3 - 2 * closure);
+      rendered.smile = 0.05 + cur.smile * (1 - closureGuard);
+    } else {
+      mouthEnvelope = Math.max(envelope, cur.mouthOpen);
+      mouthShape.h = shape.h + cur.mouthOpen * 0.25;
+      mouthShape.w = shape.w * (1 - cur.mouthRound * 0.38);
+      mouthShape.round = Math.max(shape.round, cur.mouthRound);
+      mouthShape.close = Math.max(shape.close, cur.mouthPress);
+    }
+    mouthInput.envelope = mouthEnvelope;
+    mouthInput.smile = rendered.smile;
+    mouthInput.speaking = speaking;
+    diagnostics.pose = pose;
+    diagnostics.selectedPose = selectedPose;
+    diagnostics.poseIntensity = poseIntensity;
+    mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
     motion.update(clock);
+    follow.setSquashStretch(cur.squashStretch);
     follow.update(dt, pose);
+    refreshSelection();
   }
 
-  return { update, applyTuning(tuning) {
-    // Sculpted eye values belong to each pose; existing expression, speech,
-    // gaze and head controllers retain their original inputs and timing.
+  return { update, diagnostics, applyTuning(tuning) {
     for (const name of Object.keys(eyePoses)) {
       const values = tuning.eyePoses?.[name];
-      if (values) for (const key of EYE_SHAPE_KEYS) if (Number.isFinite(values[key])) {
-        eyePoses[name][key] = Math.max(key === 'lowerLid' ? 0 : -1, Math.min(1, values[key]));
+      if (values) for (const [key, , low, high] of POSE_CONTROLS) {
+        eyePoses[name][key] = Number.isFinite(values[key]) ? clamp(values[key], low, high) : EXPR[name][key];
       }
     }
-    const editPose = eyePoses[tuning.eyePose ?? currentExpression];
-    if (editPose) for (const key of EYE_SHAPE_KEYS) if (Number.isFinite(tuning[key])) {
-      editPose[key] = Math.max(key === 'lowerLid' ? 0 : -1, Math.min(1, tuning[key]));
+    if (Object.hasOwn(eyePoses, tuning.eyePose)) selectedPose = tuning.eyePose;
+    if (Number.isFinite(tuning.poseIntensity)) poseIntensity = clamp(tuning.poseIntensity, 0, 1);
+    // Legacy flat imports remain readable. Complete nested definitions are
+    // authoritative, so another pose's editing mirror can never leak into one.
+    if (!tuning.eyePoses?.[selectedPose]) {
+      for (const [key, , low, high] of POSE_CONTROLS) if (Number.isFinite(tuning[key])) {
+        eyePoses[selectedPose][key] = clamp(tuning[key], low, high);
+      }
     }
     mappedFace.applyTuning(tuning);
     motion.applyTuning(tuning);
     head.applyTuning(tuning);
     follow.applyTuning(tuning);
+    refreshSelection();
   } };
 }
 
@@ -98,6 +215,17 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   for (const i of MOTION.EDGE_INDEX) departing[i] = 1;
   for (const i of MOTION.DETACH_INDEX) departing[i] = 1;
   const landmarks = MAPS.landmarks;
+  const pivotX = (landmarks.mouthCentre[0] - 0.5) * MAP_SCALE;
+  const eyeV = (landmarks.eyeL[1] + landmarks.eyeR[1]) * 0.5;
+  const pivotY = (0.5 - (eyeV + landmarks.mouthCentre[1]) * 0.5) * MAP_SCALE;
+  const cheekLift = new Float32Array(count), squashed = new Float32Array(BASE.length);
+  const cheekWeight = (u, v) => {
+    const horizontal = Math.max(1 - swarmSmooth(Math.abs(u - landmarks.eyeL[0]) / 0.14),
+      1 - swarmSmooth(Math.abs(u - landmarks.eyeR[0]) / 0.14));
+    return horizontal * swarmSmooth((v - eyeV) / 0.055)
+      * (1 - swarmSmooth((v - (eyeV + 0.17)) / 0.15));
+  };
+  let squashStretch = 0;
   const regions = ['L', 'R'].map(side => [
     Math.min(landmarks['eye' + side + '_inner'][0], landmarks['eye' + side + '_outer'][0]) - 0.01,
     Math.max(landmarks['eye' + side + '_inner'][0], landmarks['eye' + side + '_outer'][0]) + 0.01,
@@ -116,6 +244,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     const j = i * 3, k = i * 4;
     const u = i < coreEnd ? UV[i * 2] : BASE[j] / MAP_SCALE + 0.5;
     const v = i < coreEnd ? UV[i * 2 + 1] : 0.5 - BASE[j + 1] / MAP_SCALE;
+    cheekLift[i] = cheekWeight(u, v) * MAP_SCALE * 0.008;
     let distance = Infinity;
     for (const r of regions) distance = Math.min(distance,
       Math.hypot(Math.max(r[0] - u, 0, u - r[1]), Math.max(r[2] - v, 0, v - r[3])));
@@ -209,17 +338,41 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     }
     updateAttachment(source, BASE, phase, departing, traits, free, attachment, offsets, blends,
       coreEnd, filamentEnd, width, settings[2]);
+    let localSource = source;
+    // The original attachment field blends the local expression into attached
+    // surroundings. Loose background stars receive no expression deformation.
+    // The exact-zero path keeps the previous floating-point operation order.
+    if (squashStretch !== 0) {
+      const stretch = squashStretch * amount;
+      const vertical = stretch * 0.07, horizontal = -stretch * 0.035;
+      const lift = Math.max(0, -stretch);
+      for (let i = 0, j = 0; i < count; i++, j += 3) {
+        const weight = i < filamentEnd ? attachment[i] : 0;
+        squashed[j] = source[j] + (source[j] - pivotX) * horizontal * weight;
+        squashed[j + 1] = source[j + 1]
+          + ((source[j + 1] - pivotY) * vertical + cheekLift[i] * lift) * weight;
+        squashed[j + 2] = source[j + 2];
+      }
+      localSource = squashed;
+    }
     // Reply-start turns peak near 80 degrees/second; keep their path shimmer
     // around 0.4% of face width, with proportionally less on gentle beats.
     const deviation = settings[0] * angularSpeed * width * (0.004 / 80) * amount;
     diagnostics.deviationScale = deviation;
-    applySwarm(source, display, matrices, attachment, offsets, blends, traits, free, deviation);
+    applySwarm(localSource, display, matrices, attachment, offsets, blends, traits, free, deviation);
   }
 
   // Clearance landmarks receive exactly the protected features' current pose,
   // including virtual depth, with no delay or deviation.
   function transformPoint(point) {
     if (displayAmount === 0) return point;
+    if (squashStretch !== 0) {
+      const stretch = squashStretch * displayAmount;
+      const cheek = cheekWeight(point.x / MAP_SCALE + 0.5, 0.5 - point.y / MAP_SCALE);
+      point.x += (point.x - pivotX) * -stretch * 0.035;
+      point.y += (point.y - pivotY) * stretch * 0.07
+        + cheek * MAP_SCALE * 0.008 * Math.max(0, -stretch);
+    }
     const x = point.x, y = point.y, z = point.z, m = matrices;
     point.x = x + m[0] * x + m[1] * y + m[2] * z + m[3];
     point.y = y + m[4] * x + m[5] * y + m[6] * z + m[7];
@@ -227,7 +380,9 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     return point;
   }
 
-  return { update, apply, transformPoint, diagnostics, applyTuning(tuning) {
+  return { update, apply, transformPoint, diagnostics,
+    setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
+    applyTuning(tuning) {
     const names = ['swarm', 'swarmCoherence', 'surroundWeight', 'headDepth'];
     const low = [0, 0, 0, 1], high = [2, 1, 1, 4];
     for (let c = 0; c < names.length; c++) if (Number.isFinite(tuning[names[c]])) {

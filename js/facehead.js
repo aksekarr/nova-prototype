@@ -17,6 +17,7 @@ export function createFaceHead(reduce = false, options = {}) {
   let heardSpeech = false, quietTime = 0, phraseEnded = false;
   let nodUntil = 0, nodTarget = 0, speakingRoll = 0;
   let verticalCredit = 0;
+  let rollBiasActive = false, renderedRoll = 0;
   let yawPhase = between(0, TAU), idlePhase = between(0, TAU);
   let yawPeriod = between(3, 6), idlePeriod = between(4, 8);
   let pitchPhase = between(0, TAU), pitchPeriod = between(4, 7);
@@ -72,9 +73,10 @@ export function createFaceHead(reduce = false, options = {}) {
     doubleAt = !paired && random() < 0.05 ? time + between(1.2, 1.45) : Infinity;
   }
 
-  function update(dt, { speaking = false, envelope = 0 } = {}) {
+  function update(dt, { speaking = false, envelope = 0, bias = null } = {}) {
     pose.blink = false;
     if (!Number.isFinite(dt) || dt <= 0) return pose;
+    const previousRoll = renderedRoll;
     envelope = Number.isFinite(envelope) ? clamp(envelope, 0, 1) : 0;
     if (speaking && !wasSpeaking) {
       heardSpeech = false;
@@ -215,6 +217,23 @@ export function createFaceHead(reduce = false, options = {}) {
     pose.y = -position[3] * 0.003;
     pose.gazeX = position[4];
     pose.gazeY = position[5];
+    // Expression biases arrive already spring-smoothed. Add only at the output
+    // so they cannot alter speech beats, gaze scheduling or blink timing. Keep
+    // the existing roll limit; yaw/pitch stay within the controller's normal
+    // maximum-gain excursion. Zero biases preserve the old arithmetic exactly.
+    if (bias?.headYaw) pose.yaw = clamp(pose.yaw + bias.headYaw, -20 * motionScale, 20 * motionScale);
+    if (bias?.headPitch) pose.pitch = clamp(pose.pitch + bias.headPitch, -8 * motionScale, 8 * motionScale);
+    if (bias?.headRoll) pose.roll = clamp(pose.roll + bias.headRoll, -1.5 * motionScale, 1.5 * motionScale);
+    if (bias?.headRoll || rollBiasActive) {
+      // Preserve the controller's rendered-roll speed bound as well as its
+      // angle bound; the bias does not bypass either existing comfort limit.
+      const maximumStep = 6 * motionScale * dt;
+      pose.roll = clamp(pose.roll, previousRoll - maximumStep, previousRoll + maximumStep);
+      rollBiasActive = Boolean(bias?.headRoll) || Math.abs(pose.roll - position[2]) > 1e-8;
+    }
+    renderedRoll = pose.roll;
+    if (bias?.gazeX) pose.gazeX = clamp(pose.gazeX + bias.gazeX, -1, 1);
+    if (bias?.gazeY) pose.gazeY = clamp(pose.gazeY + bias.gazeY, -1, 1);
     return pose;
   }
 

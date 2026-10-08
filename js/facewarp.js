@@ -54,6 +54,7 @@ export function createMappedFace(shapes, reduce) {
   const lowerLids = [landmarks.eyeL_lowerLid[1], landmarks.eyeR_lowerLid[1]];
   const brows = [landmarks.browL_peak, landmarks.browR_peak];
   const innerBrows = [landmarks.browL_inner, landmarks.browR_inner];
+  const outerBrows = [landmarks.browL_outer, landmarks.browR_outer];
   const average = MAPS.average;
   const averagePeak = Math.max(...average, 0.001);
   const floorTint = average.map(value => 0.45 + value / averagePeak * 0.55);
@@ -63,7 +64,8 @@ export function createMappedFace(shapes, reduce) {
   const irisLight = new Float32Array(count * 3), noseLight = new Float32Array(count);
   const socketLight = new Float32Array(count);
   const eyePose = new Float64Array(10);
-  const eyeSculpt = new Float64Array(count * 2);
+  const warped = new Float64Array(2), apertureBounds = new Float64Array(2);
+  let eyeBand = 0;
   const eyeMembers = [[], []];
   const noseU = (landmarks.noseBridge[0] + landmarks.noseTip[0]) * 0.5;
   const noseV = (landmarks.noseBridge[1] + landmarks.noseTip[1]) * 0.5;
@@ -149,21 +151,118 @@ export function createMappedFace(shapes, reduce) {
     breathAmount = Math.max(0, tuning.breath ?? breathAmount);
   }
 
-  // The sculpted aperture keeps at least 0.0208 of plate height between lids
-  // before the existing blink closes it. Positive upperLid means heavier;
-  // positive slant lifts outer corners. This buffer is reused by both passes.
+  // The zero-expression path below is the original sampler, including its
+  // arithmetic order. Sculpted light and sampling share this lid geometry.
   function readEyePose(expression) {
     const upper = clamp(expression.upperLid ?? 0, -1, 1);
     const lower = clamp(expression.lowerLid ?? 0, 0, 1);
     const slant = clamp(expression.slant ?? 0, -1, 1);
     const asym = clamp(expression.eyeAsym ?? 0, -1, 1);
+    eyeBand = smooth(lower) * smooth((upper + 0.1) / 0.6);
     for (let side = 0; side < 2; side++) {
-      const p = side * 5, angle = slant * (side === 0 ? 1 : -1) * Math.PI / 20;
-      eyePose[p] = angle;
-      eyePose[p + 2] = upper * 0.010 + asym * (side === 0 ? -0.005 : 0.005);
-      eyePose[p + 3] = lower * 0.012;
+      const p = side * 5;
+      eyePose[p] = slant * (side === 0 ? 1 : -1) * Math.PI / 20;
+      eyePose[p + 1] = lower;
+      eyePose[p + 2] = upper * 0.025 + asym * (side === 0 ? -0.007 : 0.007);
+      eyePose[p + 3] = lower * 0.034;
       eyePose[p + 4] = Math.max(Math.abs(upper), lower, Math.abs(slant), Math.abs(asym));
     }
+  }
+
+  function eyeAperture(side, x, out) {
+    const p = side * 5, arc = Math.max(0, 1 - (x / 0.070) ** 2);
+    const bottom = lowerLids[side] - eyePose[p + 3] * arc;
+    const flatTop = lids[side] + eyePose[p + 2] * falloff(x, 0.040, 0.085);
+    // Laughter needs a curved aperture, not two lids crushing a round dot.
+    out[0] = Math.min(bottom - 0.007, flatTop + (bottom - 0.010 - flatTop) * eyeBand);
+    out[1] = bottom;
+  }
+
+  function warpEyesAndBrows(u, v, expression, gaze, blink, out, index = -1) {
+    let su = u, sv = v;
+    const open = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
+    for (let side = 0; side < 2; side++) {
+      const eye = eyes[side], p = side * 5;
+      const weight = index < 0 ? falloff(u - eye[0], 0.035, 0.102)
+        * falloff(v - eye[1], 0.032, 0.082) : weights[index * 8 + 2 + side];
+      if (weight > 0 || (eyePose[p + 4] !== 0 && Math.abs(u - eye[0]) < 0.15 && Math.abs(v - eye[1]) < 0.22)) {
+        const ix = (u - eye[0]) / 0.055, iy = (v - eye[1]) / 0.032;
+        const iris = index < 0 ? Math.pow(Math.max(0, 1 - ix * ix - iy * iy), 2)
+          : weights[index * 8 + 4 + side];
+        if (eyePose[p + 4] === 0) {
+          const upper = lids[side], lower = lowerLids[side];
+          const shift = (lower - upper) * (1 - open), targetUpper = upper + shift;
+          let sampleV = v;
+          if (v <= targetUpper) sampleV = v - shift * falloff(v - targetUpper, 0.02, 0.105);
+          else if (v < lower) sampleV = upper + (v - targetUpper)
+            / Math.max(0.001, lower - targetUpper) * (lower - upper);
+          su -= gaze.x * 0.006 * iris * open;
+          sv += (sampleV - v) * weight + gaze.y * 0.004 * iris * open;
+        } else {
+          // Inverse radial rotation and a monotone lid map preserve a single
+          // continuous image. Blink closes this already sculpted aperture.
+          const dx = u - eye[0], dy = v - eye[1];
+          const angle = eyePose[p] * falloff(Math.hypot(dx, dy), 0.065, 0.135);
+          const cosine = Math.cos(angle), sine = Math.sin(angle);
+          const localX = dx * cosine + dy * sine;
+          let localV = eye[1] - dx * sine + dy * cosine;
+          eyeAperture(side, localX, apertureBounds);
+          const bottom = apertureBounds[1];
+          const top = bottom - (bottom - apertureBounds[0]) * Math.min(1.12, open);
+          const upper = lids[side], lower = lowerLids[side];
+          const shoulder = falloff(localX, 0.040, 0.110);
+          const sourceTop = top + (upper - top) * shoulder;
+          const sourceBottom = bottom + (lower - bottom) * shoulder;
+          if (localV <= top) localV += (sourceTop - top) * falloff(localV - top, 0.020, 0.15);
+          else if (localV < bottom) localV = sourceTop + (localV - top) / (bottom - top) * (sourceBottom - sourceTop);
+          else localV += (sourceBottom - bottom) * falloff(localV - bottom, 0.020, 0.15);
+          let deltaU = localX - dx - clamp(gaze.x, -1, 1) * 0.006 * iris * open;
+          let deltaV = localV - v + clamp(gaze.y, -1, 1) * 0.004 * iris * open;
+          const activation = smooth(eyePose[p + 4] / 0.2);
+          if (activation < 1) {
+            // The neutral blink has a narrower legacy shoulder. Fade the
+            // new shoulder in too, so a tiny edit mid-blink cannot pop it.
+            const shift = (lower - upper) * (1 - open), oldTop = upper + shift;
+            let oldV = v;
+            if (v <= oldTop) oldV -= shift * falloff(v - oldTop, 0.02, 0.105);
+            else if (v < lower) oldV = upper + (v - oldTop)
+              / Math.max(0.001, lower - oldTop) * (lower - upper);
+            const oldU = -gaze.x * 0.006 * iris * open;
+            const oldDeltaV = (oldV - v) * weight + gaze.y * 0.004 * iris * open;
+            deltaU = oldU + (deltaU - oldU) * activation;
+            deltaV = oldDeltaV + (deltaV - oldDeltaV) * activation;
+          }
+          su += deltaU; sv += deltaV;
+        }
+      }
+    }
+    const knit = clamp(expression.browKnit ?? 0, -1, 1);
+    const angle = clamp(expression.browAngle ?? 0, -1, 1);
+    const tilt = clamp(expression.tilt ?? 0, -1, 1);
+    for (let side = 0; side < 2; side++) {
+      const inner = innerBrows[side], outer = outerBrows[side], peak = brows[side];
+      const lift = clamp((side === 0 ? expression.browL : expression.browR) ?? 0, -1, 1);
+      if ((!lift && !knit && !angle && !tilt) || Math.abs(su - peak[0]) > 0.24 || sv > 0.42) continue;
+      // Small, sequential inverse-flow steps keep each local Jacobian positive.
+      // Knit is strictly horizontal, including its negative (spread) half.
+      if (knit) for (let step = 0; step < 4; step++) {
+        const w = falloff(su - inner[0], 0.018, 0.100) * falloff(sv - inner[1], 0.025, 0.100);
+        su -= knit * (side === 0 ? 1 : -1) * 0.030 * 0.25 * w;
+      }
+      if (lift || angle || tilt) for (let step = 0; step < 4; step++) {
+        const t = clamp((su - inner[0]) / (outer[0] - inner[0]), 0, 1);
+        const edge = t < 0.5 ? inner[1] + (peak[1] - inner[1]) * smooth(t * 2)
+          : peak[1] + (outer[1] - peak[1]) * smooth((t - 0.5) * 2);
+        const w = falloff(su - peak[0], 0.105, 0.190)
+          * falloff(sv - edge, 0.018, 0.125);
+        // Tilt keeps the old image-space slope: opposite inner/outer effects
+        // on the two brows. Angle instead mirrors the two brows into a V.
+        const shift = lift * 0.045 + angle * (2 * smooth(t) - 1) * 0.036
+          + tilt * clamp((su - peak[0]) / 0.112, -1, 1) * 0.018;
+        sv += shift * 0.25 * w;
+      }
+    }
+    out[0] = su; out[1] = sv;
   }
 
   function updateWarp(expression, gaze, blink, envelope, shape) {
@@ -172,7 +271,6 @@ export function createMappedFace(shapes, reduce) {
       + expression.smile * 0.05, 0.58, 1.3);
     const lipPress = 1 / (1 - shape.close * 0.18 * Math.min(mouthWarpStrength, 1.5)) - 1;
     const eyeOpen = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
-    const browKnit = clamp(expression.browKnit ?? 0, -1, 1);
     const roundDepth = shape.round * mouthWarpStrength * 0.15;
     for (let i = 0; i < count; i++) {
       const j = i * 3, k = i * 8;
@@ -221,70 +319,14 @@ export function createMappedFace(shapes, reduce) {
         }
       }
 
+      // Mouth sampling is composed unchanged with the eye/brow map.
+      warpEyesAndBrows(u, v, expression, gaze, blink, warped, i);
+      su += warped[0] - u; sv += warped[1] - v;
       for (let side = 0; side < 2; side++) {
-        const eyeWeight = weights[k + 2 + side];
-        if (eyeWeight > 0) {
-          const upper = lids[side], lower = lowerLids[side];
-          const shift = (lower - upper) * (1 - eyeOpen);
-          const targetUpper = upper + shift;
-          let sampleV = v;
-          if (v <= targetUpper) {
-            sampleV = v - shift * falloff(v - targetUpper, 0.02, 0.105);
-          } else if (v < lower) {
-            sampleV = upper + (v - targetUpper) / Math.max(0.001, lower - targetUpper) * (lower - upper);
-          }
-          const iris = weights[k + 4 + side];
-          su -= gaze.x * 0.006 * iris * eyeOpen;
-          sv += (sampleV - v) * eyeWeight + gaze.y * 0.004 * iris * eyeOpen;
-          eyeGain -= (1 - Math.min(1, eyeOpen)) * 0.78 * iris;
-          eyeFocus += iris * eyeOpen;
-        }
-        const browWeight = weights[k + 6 + side];
-        if (browWeight > 0) {
-          const lift = side === 0 ? expression.browL : expression.browR;
-          sv += (lift + expression.tilt * (u - brows[side][0]) / 0.15) / MAP_SCALE * browWeight;
-        }
+        const iris = weights[k + 4 + side];
+        eyeGain -= (1 - Math.min(1, eyeOpen)) * 0.78 * iris;
+        eyeFocus += iris * eyeOpen;
       }
-
-      // Compose sculpting after the intact legacy map. Each local map below
-      // preserves orientation, so existing brow/blink shoulders cannot combine
-      // additively with a new control to create a fold in the plate.
-      const beforeU = su, beforeV = sv;
-      if (eyePose[4] !== 0) for (let side = 0; side < 2; side++) {
-        const eye = eyes[side], p = side * 5;
-        let dx = su - eye[0], dy = sv - eye[1];
-        if (Math.abs(dx) >= 0.135 || Math.abs(dy) >= 0.16) continue;
-        if (eyePose[p] !== 0 && Math.abs(dx) < 0.135 && Math.abs(dy) < 0.135) {
-          // A radial twist has determinant one, including its soft shoulder.
-          const radius = Math.hypot(dx, dy);
-          const angle = eyePose[p] * falloff(radius, 0.065, 0.135);
-          const cosine = Math.cos(angle), sine = Math.sin(angle);
-          su = eye[0] + dx * cosine + dy * sine;
-          sv = eye[1] - dx * sine + dy * cosine;
-        }
-        const bow = falloff(su - eye[0], 0.026, 0.078);
-        if (bow > 0 && (eyePose[p + 2] !== 0 || eyePose[p + 3] !== 0)) {
-          const upper = lids[side], lower = lowerLids[side];
-          const top = upper + eyePose[p + 2] * bow;
-          const bottom = lower - eyePose[p + 3] * bow;
-          if (sv <= top) {
-            sv += (upper - top) * falloff(sv - top, 0.02, 0.105);
-          } else if (sv < bottom) {
-            sv = upper + (sv - top) / (bottom - top) * (lower - upper);
-          } else {
-            sv += (lower - bottom) * falloff(sv - bottom, 0.02, 0.105);
-          }
-        }
-      }
-      if (browKnit !== 0) for (let side = 0; side < 2; side++) {
-        const inner = innerBrows[side];
-        const knitWeight = falloff(su - inner[0], 0.015, 0.075)
-          * falloff(sv - inner[1], 0.012, 0.062);
-        // |a dot grad(weight)| <= .61, hence this map's determinant >= .39.
-        su -= Math.max(0, browKnit) * (side === 0 ? 0.010 : -0.010) * knitWeight;
-        sv -= browKnit * 0.012 * knitWeight;
-      }
-      eyeSculpt[i * 2] = su - beforeU; eyeSculpt[i * 2 + 1] = sv - beforeV;
 
       const f = i * 5;
       samplePositions[i * 2] = su; samplePositions[i * 2 + 1] = sv;
@@ -384,7 +426,7 @@ export function createMappedFace(shapes, reduce) {
   // Iris light is evaluated only for the small eye neighbourhoods. It follows
   // the existing image-space gaze and closing lid, never the drifting world
   // positions, so the same home samples preserve a coherent face.
-  function updateIrisLight(expression, gaze, blink) {
+  function updateNeutralIrisLight(expression, gaze, blink) {
     const open = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
     const visible = clamp((open - 0.015) / 0.985, 0, 1);
     for (let side = 0; side < 2; side++) {
@@ -398,11 +440,9 @@ export function createMappedFace(shapes, reduce) {
       const members = eyeParticles[side];
       for (let n = 0; n < members.length; n++) {
         const i = members[n], j = i * 3;
-        // Apply only the added sculpt displacement to the old glow frame;
-        // infinitesimal slider changes therefore retain the same glow anchor.
-        const dx = UV[i * 2] - centreU + eyeSculpt[i * 2];
-        const dy = UV[i * 2 + 1] - centreV + eyeSculpt[i * 2 + 1] * open;
-        const localV = UV[i * 2 + 1] + eyeSculpt[i * 2 + 1] * open;
+        const dx = UV[i * 2] - centreU;
+        const dy = UV[i * 2 + 1] - centreV;
+        const localV = UV[i * 2 + 1];
         const lower = lowerLids[side], upper = lids[side];
         const coreWidth = 0.011 * (1 + irisSoftness * 0.4);
         const haloWidth = 0.029 * (1 + irisSoftness * 0.3);
@@ -427,6 +467,67 @@ export function createMappedFace(shapes, reduce) {
         irisLight[j] = core * core * visible * (1 - irisSoftness * 0.3) * crop;
         irisLight[j + 1] = halo * halo * visible * crop;
         irisLight[j + 2] = glint * glint * visible * (1 - irisSoftness * 0.3) * crop;
+      }
+    }
+  }
+
+  function updateIrisLight(expression, gaze, blink) {
+    if (eyePose[4] === 0) { updateNeutralIrisLight(expression, gaze, blink); return; }
+    const blend = smooth(eyePose[4] / 0.2);
+    if (blend < 1) updateNeutralIrisLight(expression, gaze, blink);
+    const open = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
+    // The existing blink envelope is the final light gate. Neither wide-eye
+    // settings nor the laughing band can reopen a fully closed blink.
+    const visible = clamp((open - 0.015) / 0.985, 0, 1);
+    for (let side = 0; side < 2; side++) {
+      const p = side * 5, eye = eyes[side], lower = eyePose[p + 1];
+      const gx = clamp(gaze.x, -1, 1) * 0.006 * open;
+      const gy = clamp(gaze.y, -1, 1) * 0.004 * open;
+      const broad = smooth(lower);
+      const width = 0.011 * (1 + irisSoftness * 0.4) + broad * 0.047;
+      const haloWidth = 0.029 * (1 + irisSoftness * 0.3) + broad * 0.029;
+      const members = eyeParticles[side];
+      for (let n = 0; n < members.length; n++) {
+        const i = members[n], j = i * 3;
+        const dx = UV[i * 2] - eye[0], dy = UV[i * 2 + 1] - eye[1];
+        const angle = eyePose[p] * falloff(Math.hypot(dx, dy), 0.065, 0.135);
+        const cosine = Math.cos(angle), sine = Math.sin(angle);
+        const x = dx * cosine + dy * sine;
+        const v = eye[1] - dx * sine + dy * cosine;
+        eyeAperture(side, x, apertureBounds);
+        const bottom = apertureBounds[1];
+        const top = bottom - (bottom - apertureBounds[0]) * Math.min(1.12, open);
+        const gap = bottom - top, feather = Math.min(0.0032, gap * 0.24);
+        const crop = smooth((v - top) / feather) * smooth((bottom - v) / feather)
+          * falloff(x, 0.054, 0.071);
+        const originalCentre = lowerLids[side] - (lowerLids[side] - eye[1]) * open - gy;
+        // Expand the existing core across the lower-lid arc. No extra points,
+        // sprites or lines: these are the same stars, with a soft light field.
+        const bandCentre = bottom - Math.min(0.006, gap * 0.5);
+        const requestedCentre = originalCentre + (bandCentre - originalCentre) * broad;
+        // Heavy upper lids mask the fixed iris instead of chasing its light
+        // downwards; lower lids increasingly redistribute it into their arc.
+        const constrained = clamp(requestedCentre, top + gap * 0.26, bottom - gap * 0.26);
+        const centre = requestedCentre + (constrained - requestedCentre) * broad;
+        const coreHeight = ((0.009 * open + 0.001)
+          + (0.011 - (0.009 * open + 0.001)) * irisRound) * (1 + irisSoftness * 0.4);
+        const haloHeight = ((0.020 * open + 0.002)
+          + (0.029 - (0.020 * open + 0.002)) * irisRound) * (1 + irisSoftness * 0.3);
+        const ch = coreHeight + (Math.max(0.0030, gap * 0.44) - coreHeight) * broad;
+        const hh = haloHeight + (Math.max(0.0045, gap * 0.65) - haloHeight) * broad;
+        const cx = (x - gx) / width, cy = (v - centre) / ch;
+        const hx = (x - gx) / haloWidth, hy = (v - centre) / hh;
+        const sx = (x - gx + 0.0045) / (0.0042 + broad * 0.024);
+        const sy = (v - centre + 0.0038 * open * (1 - broad)) / (0.003 * open + 0.0007);
+        const core = Math.max(0, 1 - cx * cx - cy * cy);
+        const halo = Math.max(0, 1 - hx * hx - hy * hy);
+        const glint = Math.max(0, 1 - sx * sx - sy * sy);
+        const coreLight = core * core * visible * (1 - irisSoftness * 0.3) * crop;
+        const haloLight = halo * halo * visible * crop;
+        const glintLight = glint * glint * visible * (1 - irisSoftness * 0.3) * crop * (1 - broad * 0.65);
+        irisLight[j] = blend < 1 ? irisLight[j] + (coreLight - irisLight[j]) * blend : coreLight;
+        irisLight[j + 1] = blend < 1 ? irisLight[j + 1] + (haloLight - irisLight[j + 1]) * blend : haloLight;
+        irisLight[j + 2] = blend < 1 ? irisLight[j + 2] + (glintLight - irisLight[j + 2]) * blend : glintLight;
       }
     }
   }
