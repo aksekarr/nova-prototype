@@ -63,7 +63,7 @@ export function createCueExpressions() {
   const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
   const seconds = (key, fallback) => Number.isFinite(timing[key]) ? Math.max(0, timing[key]) : fallback;
   const phase = (age, duration) => duration > 0 ? smooth(age / duration) : Number(age >= 0);
-  const blank = () => ({ weights: {}, gazeWeights: {}, questionPitch: 0 });
+  const blank = () => ({ weights: {}, gazeWeights: {}, questionPitch: 0, microSuppression: 0 });
   const mix = (a, b, weight) => {
     const result = blank();
     for (const field of ['weights', 'gazeWeights']) {
@@ -73,6 +73,7 @@ export function createCueExpressions() {
       }
     }
     result.questionPitch = a.questionPitch * (1 - weight) + b.questionPitch * weight;
+    result.microSuppression = a.microSuppression * (1 - weight) + b.microSuppression * weight;
     return result;
   };
   let output = blank(), channels = { mood: blank(), event: blank(), question: blank() };
@@ -97,6 +98,7 @@ export function createCueExpressions() {
       moodStart = cue.start;
     }
     Object.assign(mood.weights, mix(source, destination, phase(position - moodStart, moodAttack)).weights);
+    mood.microSuppression = clamp(Object.values(mood.weights).reduce((sum, weight) => sum + weight, 0), 0, 1);
     // Only thinking may steer the eyes, and only during its first brief glance.
     for (const cue of moods) {
       const mapping = mapCue(cue), age = position - cue.start;
@@ -140,6 +142,9 @@ export function createCueExpressions() {
       if (position < cue.start) continue;
       if (!isQuestion && ['laugh', 'chuckle', 'sigh'].includes(mapping.kind)) blockingEvent = true;
       const weight = phase(position - cue.start, attack) * (1 - phase(position - end, recovery));
+      if (!isQuestion && ['laugh', 'chuckle', 'sigh'].includes(mapping.kind)) {
+        event.microSuppression = Math.max(event.microSuppression, weight);
+      }
       if (isQuestion) {
         if (weight >= questionWeight) {
           questionWeight = weight;
@@ -174,6 +179,7 @@ export function createCueExpressions() {
         result[field][name] = (result[field][name] || 0) + value;
       }
       result.questionPitch += part.questionPitch;
+      result.microSuppression = 1 - (1 - result.microSuppression) * (1 - part.microSuppression);
     }
     return result;
   }
@@ -260,6 +266,7 @@ export function createBrowFlashes() {
   let settings = {}, amount = 1, seed = null, randomState = 0, drew = false;
   let replyId = null, time = 0, lastFlash = -Infinity, lastBeatTime = -Infinity, age = Infinity;
   const state = { target: 0, active: false, decisions: [], contribution: { browL: 0, browR: 0, upperLid: 0 } };
+  const velocity = { browL: 0, browR: 0, upperLid: 0 };
   const value = (key, fallback) => Number.isFinite(settings[key]) ? Math.max(0, settings[key]) : fallback;
   const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
   const random = () => {
@@ -301,16 +308,155 @@ export function createBrowFlashes() {
         if (!reason) { age = 0; lastFlash = time; lastBeatTime = beat.time; }
         state.decisions.push({ beatTime: beat.position, strength: beat.strength, selected: !reason, reason });
       }
-      const attack = value('attack', 0.08), hold = value('hold', 0.1), release = value('release', 0.3);
+      const attack = value('attack', 0.035), hold = value('hold', 0.105), release = value('release', 0.3);
       const phase = (x, duration) => duration ? smooth(x / duration) : Number(x >= 0);
       const weight = Number.isFinite(age) ? phase(age, attack) * (1 - phase(age - attack - hold, release)) : 0;
       state.target = weight * amount;
-      for (const [key, fallback] of [['browL', 0.35], ['browR', 0.35], ['upperLid', -0.15]]) {
+      // A separate, fast critically damped response bypasses the pose springs.
+      // Cancellation still releases from the current value and velocity.
+      const frequency = value('response', 70), decay = Math.exp(-frequency * dt);
+      for (const [key, fallback] of [['browL', 0.45], ['browR', 0.45], ['upperLid', -0.15]]) {
         const gain = settings.amount?.[key];
-        state.contribution[key] = state.target * (Number.isFinite(gain) ? gain : fallback);
+        const target = state.target * (Number.isFinite(gain) ? gain : fallback);
+        const offset = state.contribution[key] - target, tangent = velocity[key] + frequency * offset;
+        state.contribution[key] = target + (offset + tangent * dt) * decay;
+        velocity[key] = (velocity[key] - frequency * tangent * dt) * decay;
+        if (Math.abs(state.contribution[key] - target) < 1e-8 && Math.abs(velocity[key]) < 1e-7) {
+          state.contribution[key] = target; velocity[key] = 0;
+        }
       }
       state.active = age < attack + hold + release;
       age += dt;
+      return state.contribution;
+    }
+  };
+}
+
+// This generator is local to micro expressions: neither sampling nor changing
+// replies consumes the head, blink, flash, or particle random streams.
+export function createMicroExpressions() {
+  const keys = ['smile', 'upperLid', 'lowerLid', 'browL', 'browR'];
+  const blank = () => Object.fromEntries(keys.map(key => [key, 0]));
+  const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  let settings = {}, amount = 1, pendingSeed = null, seed = null, replyId = null;
+  let speechWaves = null, animationTime = 0, position = 0, modeKey = 'off';
+  let transition = null, phrase = null, phraseActive = false;
+  const unattenuated = blank();
+  const state = { contribution: blank(), drift: blank(), phrase: 0, phraseEvents: [],
+    suppression: 0, mode: 'off', seed: null, position: 0 };
+  const value = (key, fallback) => Number.isFinite(settings[key]) ? Math.max(0, settings[key]) : fallback;
+  const phase = (age, duration) => duration ? smooth(age / duration) : Number(age >= 0);
+
+  function waves(seed) {
+    let randomState = (seed ^ 0x9e3779b9) >>> 0;
+    const random = () => {
+      randomState = (randomState + 0x6d2b79f5) | 0;
+      let n = Math.imul(randomState ^ randomState >>> 15, 1 | randomState);
+      n ^= n + Math.imul(n ^ n >>> 7, 61 | n);
+      return ((n ^ n >>> 14) >>> 0) / 4294967296;
+    };
+    return Array.from({ length: 7 }, () => Array.from({ length: 3 }, () =>
+      ({ period: random(), phase: random() * Math.PI * 2 })));
+  }
+  const listeningWaves = waves(0x51e71a9);
+  function sample(bank, time) {
+    if (!bank) return blank();
+    const wave = (index, range) => {
+      const low = Math.max(0.1, Number.isFinite(range?.[0]) ? range[0] : 2);
+      const high = Math.max(low, Number.isFinite(range?.[1]) ? range[1] : 6);
+      return bank[index].reduce((sum, component) => sum + Math.sin(component.phase
+        + time * Math.PI * 2 / lerp(low, high, component.period)), 0) / 3;
+    };
+    const quiet = 0.12 + 0.88 * smooth((wave(6, settings.periods?.quiet || [7, 13]) + 1) / 2) ** 2;
+    const signal = index => wave(index, settings.periods?.drift || [2, 6]);
+    // Equal-variance common/independent signals give correlation ~0.7.
+    const common = Math.sqrt(0.7) * signal(3), independent = Math.sqrt(0.3);
+    const normalizer = Math.sqrt(0.7) + independent;
+    const raw = { smile: signal(0), upperLid: signal(1), lowerLid: (signal(2) + 1) / 2,
+      browL: (common + independent * signal(4)) / normalizer,
+      browR: (common + independent * signal(5)) / normalizer };
+    for (const key of keys) raw[key] *= quiet * (Number.isFinite(settings.amplitudes?.[key])
+      ? settings.amplitudes[key] : key === 'lowerLid' ? 0.1 : 0.08);
+    return raw;
+  }
+  function phraseAt(time) {
+    return phrase ? lerp(phrase.source, phrase.target, phase(time - phrase.start,
+      value(phrase.target ? 'phraseAttack' : 'phraseRelease', phrase.target ? 0.3 : 0.45))) : 0;
+  }
+
+  return { state,
+    setReplyText(text) {
+      pendingSeed = null;
+      if (typeof text !== 'string') return;
+      let hash = 2166136261;
+      for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+      pendingSeed = hash >>> 0;
+    },
+    applyTuning(tuning) {
+      if (tuning.micro) settings = tuning.micro;
+      if (Number.isFinite(tuning.microAmount)) amount = clamp(tuning.microAmount, 0, 2);
+    },
+    update(dt, cues, suppression, enabled, listeningWeight, events) {
+      animationTime += dt;
+      const nextReply = cues?.replyId ?? null;
+      const newReply = nextReply !== replyId;
+      if (newReply) {
+        replyId = nextReply; seed = null; speechWaves = null;
+        position = cues?.position ?? 0;
+        phrase = null; phraseActive = false;
+      }
+      // Late text starts a smooth handover once, and later text corrections
+      // cannot re-seed a reply that is already moving.
+      if (cues && seed === null && pendingSeed !== null) {
+        seed = pendingSeed; speechWaves = waves(seed);
+      }
+      // Voice already holds this clock at the last played sample in a gap.
+      // Accept its exact end position even on the first underrun frame.
+      const speechStep = cues ? Math.max(0, cues.position - position) : 0;
+      position = cues?.position ?? 0;
+      state.phraseEvents = events.filter(event => cues && event.replyId === replyId && cues.state !== 'gap');
+      for (const event of state.phraseEvents) {
+        const active = event.type === 'start';
+        if (active === phraseActive) continue;
+        phrase = { source: phraseAt(event.position), target: active ? 1 : 0, start: event.position };
+        phraseActive = active;
+      }
+      const mode = !enabled || amount === 0 ? 'off' : cues ? 'speech' : listeningWeight > 0 ? 'listening' : 'off';
+      const attenuation = 1 - clamp(suppression, 0, 1);
+      const nextKey = mode === 'speech' ? `${replyId}:${seed}` : mode;
+      if (nextKey !== modeKey) {
+        // Cue envelopes gate both sides of an active handover. Off releases
+        // freeze the visible layer so a recovering cue cannot reveal it again.
+        const source = mode !== 'off' && state.mode !== 'off' ? unattenuated : state.contribution;
+        transition = { source: { ...source }, age: 0,
+          duration: value(mode === 'off' ? 'release' : 'blend', 0.4) };
+        modeKey = nextKey;
+      }
+      state.mode = mode; state.seed = seed; state.position = position;
+      state.suppression = clamp(suppression, 0, 1);
+      state.phrase = cues ? phraseAt(position) : 0;
+      state.drift = mode === 'speech' ? sample(speechWaves, position)
+        : mode === 'listening' ? sample(listeningWaves, animationTime * value('listeningSpeed', 0.5)) : blank();
+      const target = blank();
+      const gain = amount
+        * (mode === 'listening' ? value('listeningScale', 1 / 3) * listeningWeight : 1);
+      for (const key of keys) if (mode !== 'off') {
+        const lift = settings.phraseLift?.[key] ?? ({ browL: 0.1, browR: 0.1, upperLid: -0.05, smile: 0.05 }[key] || 0);
+        target[key] = (state.drift[key] + (mode === 'speech' && speechWaves ? state.phrase * lift : 0)) * gain;
+      }
+      if (transition) {
+        transition.age += mode === 'speech' ? speechStep : dt;
+        const blend = phase(transition.age, transition.duration);
+        for (const key of keys) {
+          const mixed = lerp(transition.source[key], target[key], blend);
+          unattenuated[key] = mode === 'off' ? 0 : mixed;
+          state.contribution[key] = mode === 'off' ? mixed : mixed * attenuation;
+        }
+        if (blend === 1) transition = null;
+      } else for (const key of keys) {
+        unattenuated[key] = target[key];
+        state.contribution[key] = target[key] * attenuation;
+      }
       return state.contribution;
     }
   };
@@ -326,7 +472,8 @@ export function createFace(shapes, reduce) {
   let selectionListener = null, selectionKey = '';
   const automatic = createCueExpressions();
   const flashes = createBrowFlashes();
-  let beats = [], headTime = 0;
+  const micro = createMicroExpressions();
+  let beats = [], phraseEvents = [], headTime = 0;
   let listeningSettings = {}, replyBlend = 0.4;
   let listeningWeight = 0, listeningTransition = null, listeningBridge = null;
   const listeningState = { weight: 0, phase: 'off', eligible: false };
@@ -343,7 +490,7 @@ export function createFace(shapes, reduce) {
   const diagnostics = { expression: cur, rendered, mouth: mouthInput, gaze,
     pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
     maxParameterStepKey: '', mapped: mappedFace.diagnostics,
-    browFlash: flashes.state, listening: listeningState };
+    browFlash: flashes.state, micro: micro.state, listening: listeningState };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
   shapes.headDisplay = follow;
@@ -417,6 +564,7 @@ export function createFace(shapes, reduce) {
         : listeningWeight ? 'listening' : eligible ? 'settling' : 'off' });
     const listeningPose = eyePoses[listeningSettings.pose] || eyePoses.content;
     const listeningAmount = Number.isFinite(listeningSettings.amount) ? clamp(listeningSettings.amount, 0, 1) : 0.25;
+    const drift = micro.update(step, cues, blend.microSuppression, automaticEnabled, listeningWeight, phraseEvents);
     const frequency = 14, decay = Math.exp(-frequency * step);
     for (const [key, , low, high] of POSE_CONTROLS) {
       let target = 0;
@@ -426,9 +574,9 @@ export function createFace(shapes, reduce) {
         for (const [name, weight] of Object.entries(weights)) target += eyePoses[name][key] * weight;
         if (key === 'headPitch') target += blend.questionPitch;
         if (listeningWeight && key !== 'gazeX' && key !== 'gazeY') target += listeningPose[key] * listeningAmount * listeningWeight;
-        if (listeningBridge) target = lerp(listeningBridge.source[key], target, bridgeMix);
-        if (flash[key]) target += flash[key];
       }
+      if (drift[key]) target += drift[key];
+      if (listeningBridge) target = lerp(listeningBridge.source[key], target, bridgeMix);
       target = clamp(target, low, high);
       const previous = cur[key], offset = previous - target;
       const tangent = velocity[key] + frequency * offset;
@@ -443,7 +591,7 @@ export function createFace(shapes, reduce) {
         diagnostics.maxParameterStepDt = step;
         diagnostics.maxParameterStepKey = key;
       }
-      rendered[key] = cur[key];
+      rendered[key] = flash[key] ? clamp(cur[key] + flash[key], low, high) : cur[key];
     }
     rendered.smile = 0.05 + cur.smile;
     if (bridgeMix === 1) listeningBridge = null;
@@ -451,6 +599,8 @@ export function createFace(shapes, reduce) {
     headTime += step;
     beats = head.consumeBeats().map(beat => ({ ...beat, replyId: activeReply,
       position: Math.max(0, (cues?.position ?? 0) - (headTime - beat.time)) }));
+    phraseEvents = head.consumePhraseEvents().map(event => ({ ...event, replyId: activeReply,
+      position: Math.max(0, (cues?.position ?? 0) - (headTime - event.time)) }));
     gaze.x = pose.gazeX;
     gaze.y = pose.gazeY;
 
@@ -499,7 +649,10 @@ export function createFace(shapes, reduce) {
     refreshSelection();
   }
 
-  return { update, diagnostics, setPose, setReplyText: flashes.setReplyText, onSelectionChange(listener) {
+  return { update, diagnostics, setPose, setReplyText(text) {
+    flashes.setReplyText(text);
+    micro.setReplyText(text);
+  }, onSelectionChange(listener) {
     selectionListener = listener;
     selectionKey = '';
     refreshSelection();
@@ -519,6 +672,7 @@ export function createFace(shapes, reduce) {
     if (nextPose !== selectedPose || nextIntensity !== poseIntensity) setPose(nextPose, nextIntensity);
     automatic.applyTuning(tuning);
     flashes.applyTuning(tuning);
+    micro.applyTuning(tuning);
     if (tuning.listening) listeningSettings = tuning.listening;
     if (Number.isFinite(tuning.cueTiming?.replyBlend)) replyBlend = Math.max(0, tuning.cueTiming.replyBlend);
     // Legacy flat imports remain readable. Complete nested definitions are

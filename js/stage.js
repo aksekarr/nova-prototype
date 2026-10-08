@@ -39,9 +39,17 @@ const TUNING = {
   laughAmount: 1,
   moodAmount: 1,
   browFlashAmount: 1,
-  // These additions share one accent envelope and the existing pose springs.
-  browFlash: { amount: { browL: 0.35, browR: 0.35, upperLid: -0.15 }, threshold: 0.22,
-    minInterval: 2, chance: 0.5, attack: 0.08, hold: 0.1, release: 0.3 },
+  microAmount: 1,
+  micro: {
+    amplitudes: { smile: 0.16, upperLid: 0.16, lowerLid: 0.2, browL: 0.16, browR: 0.16 },
+    periods: { drift: [2, 6], quiet: [7, 13] },
+    phraseLift: { browL: 0.2, browR: 0.2, upperLid: -0.1, smile: 0.1 },
+    phraseAttack: 0.3, phraseRelease: 0.45, blend: 0.4, release: 0.4,
+    listeningScale: 1 / 3, listeningSpeed: 0.5
+  },
+  // Flash response is independent of the shared pose springs.
+  browFlash: { amount: { browL: 0.45, browR: 0.45, upperLid: -0.15 }, threshold: 0.22,
+    minInterval: 2, chance: 0.5, attack: 0.035, hold: 0.105, release: 0.3, response: 70 },
   listening: { pose: 'content', amount: 0.25, attack: 0.8, release: 1 },
   cueMap: {
     laugh: { kind: 'laugh', pose: 'laugh', amount: 1 },

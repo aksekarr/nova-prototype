@@ -29,6 +29,7 @@ export function createFaceHead(reduce = false, options = {}) {
   const motionScale = reduce ? 0.2 : 1;
   const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0 };
   const beats = [];
+  const phraseEvents = [];
   const pose = {
     yaw: 0, pitch: 0, roll: 0, x: 0, y: 0,
     gazeX: 0, gazeY: 0, gazeHold: false, blink: false
@@ -131,6 +132,7 @@ export function createFaceHead(reduce = false, options = {}) {
 
       let blinkOpportunity = false;
       if (speaking && envelope > 0.065) {
+        if (!heardSpeech || phraseEnded) phraseEvents.push({ type: 'start', time });
         heardSpeech = true;
         quietTime = 0;
         phraseEnded = false;
@@ -138,6 +140,7 @@ export function createFaceHead(reduce = false, options = {}) {
         quietTime += step;
         if (quietTime > 0.25 && !phraseEnded) {
           phraseEnded = true;
+          phraseEvents.push({ type: 'end', time });
           heldYaw = position[0] / Math.max(gain, 0.0001);
           heldPitch = position[1] / Math.max(gain, 0.0001);
           heldRoll = speakingRoll;
@@ -249,6 +252,7 @@ export function createFaceHead(reduce = false, options = {}) {
   // Draining the queue makes every detected accent a one-time event, including
   // when an update contains more than one fixed step. No random draw is added.
   function consumeBeats() { return beats.splice(0); }
+  function consumePhraseEvents() { return phraseEvents.splice(0); }
 
-  return { update, applyTuning, diagnostics, consumeBeats };
+  return { update, applyTuning, diagnostics, consumeBeats, consumePhraseEvents };
 }
