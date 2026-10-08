@@ -44,6 +44,7 @@ const FLANGER_CONTROLS = [
 const HEAD_CONTROLS = [
   ['headAmount', 'Head amount', 0, 2, 0.01],
   ['nodAmount', 'Nod amount', 0, 2, 0.01],
+  ['followSpread', 'Follow spread', 0, 2, 0.01],
   ['blinkRate', 'Blinks per minute', 0, 30, 1],
 ];
 

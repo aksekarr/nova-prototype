@@ -16,15 +16,17 @@ export function createFaceHead(reduce = false, options = {}) {
   let lastBeat = -10, peak = 0, trough = 0, beatArmed = true;
   let heardSpeech = false, quietTime = 0, phraseEnded = false;
   let nodUntil = 0, nodTarget = 0, speakingRoll = 0;
+  let verticalCredit = 0;
   let yawPhase = between(0, TAU), idlePhase = between(0, TAU);
   let yawPeriod = between(3, 6), idlePeriod = between(4, 8);
-  let heldYaw = 0, heldRoll = 0;
+  let pitchPhase = between(0, TAU), pitchPeriod = between(4, 7);
+  let heldYaw = 0, heldPitch = 0, heldRoll = 0;
   let microX = 0, microY = 0, idleX = 0, idleY = 0, nextGaze = 0;
   let glanceUntil = 0, glanceYaw = 0, glanceX = 0, glanceY = 0;
   let lastBlink = -10, blinkCredit = 0, blinkThreshold = between(0.85, 1.15);
   let doubleAt = Infinity, headAmount = 1, nodAmount = 1, blinkRate = 17;
   const motionScale = reduce ? 0.2 : 1;
-  const diagnostics = { beats: 0, phraseNods: 0, glances: 0, blinks: 0 };
+  const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0 };
   const pose = {
     yaw: 0, pitch: 0, roll: 0, x: 0, y: 0,
     gazeX: 0, gazeY: 0, gazeHold: false, blink: false
@@ -133,6 +135,7 @@ export function createFaceHead(reduce = false, options = {}) {
         if (quietTime > 0.25 && !phraseEnded) {
           phraseEnded = true;
           heldYaw = position[0] / Math.max(gain, 0.0001);
+          heldPitch = position[1] / Math.max(gain, 0.0001);
           heldRoll = speakingRoll;
           startNod(between(2, 3), true);
           blinkOpportunity = true;
@@ -146,18 +149,31 @@ export function createFaceHead(reduce = false, options = {}) {
           && rise > 0.6 && envelopeSmooth - trough > 0.075
           && envelopeSmooth > Math.max(0.18, average + 0.11, average * 1.2)) {
         const strength = clamp((envelopeSmooth - average - 0.09) / 0.45, 0, 1);
-        startNod(1 + 1.5 * strength, false);
-        const side = speakingRoll === 0 ? (random() < 0.5 ? -1 : 1)
-          : (random() < 0.8 ? -Math.sign(speakingRoll) : Math.sign(speakingRoll));
-        speakingRoll = side * between(0.85, 2);
+        // Random ordering with bounded credit keeps the longer-run mix near 45%
+        // without long streaks of one direction or a repeating gesture pattern.
+        verticalCredit += 0.45;
+        const vertical = random() < verticalCredit;
+        if (vertical) verticalCredit -= 1;
+        if (vertical) {
+          // Keep the settled roll so this beat reads as a chin dip or lift.
+          // A fresh roll target here would turn the vertical gesture into a tilt.
+          startNod((random() < 0.5 ? -1 : 1) * Math.min(2, 1 + 1.5 * strength), false);
+          diagnostics.verticalBeats++;
+        } else {
+          startNod(1 + 1.5 * strength, false);
+          const side = speakingRoll === 0 ? (random() < 0.5 ? -1 : 1) : -Math.sign(speakingRoll);
+          speakingRoll = side * between(0.85, 2);
+        }
         lastBeat = time;
         beatArmed = false;
         peak = trough = envelopeSmooth;
       }
 
       if (!(speaking && phraseEnded)) yawPhase += TAU * step / (yawPeriod * blend + idlePeriod * (1 - blend));
+      if (!(speaking && phraseEnded)) pitchPhase += TAU * step / pitchPeriod;
       idlePhase += TAU * step / idlePeriod;
       if (yawPhase >= TAU) { yawPhase -= TAU; yawPeriod = between(3, 6); }
+      if (pitchPhase >= TAU) { pitchPhase -= TAU; pitchPeriod = between(4, 7); }
       if (idlePhase >= TAU) { idlePhase -= TAU; idlePeriod = between(4, 8); }
 
       if (time >= nextGaze) {
@@ -175,10 +191,11 @@ export function createFaceHead(reduce = false, options = {}) {
       const glancing = speaking && time < glanceUntil;
       const driftingYaw = Math.sin(yawPhase) * (1.5 + blend);
       const yawTarget = glancing ? glanceYaw : speaking && phraseEnded ? heldYaw : driftingYaw;
+      const pitchTarget = speaking && phraseEnded ? heldPitch : Math.sin(pitchPhase) * 1.2;
       const rollTarget = (speaking && phraseEnded ? heldRoll : speakingRoll) * blend
         + Math.sin(idlePhase) * 0.8 * (1 - blend);
       spring(0, yawTarget * gain, step);
-      spring(1, Math.sin(idlePhase + 1.1) * 0.6 * (1 - blend) * gain, step);
+      spring(1, (Math.sin(idlePhase + 1.1) * 0.6 * (1 - blend) + pitchTarget * blend) * gain, step);
       spring(2, clamp(rollTarget * gain, -2.9 * motionScale, 2.9 * motionScale), step, 12);
       spring(3, time < nodUntil ? nodTarget * gain * nodAmount : 0, step, 20);
       spring(4, glancing ? glanceX : idleX * (1 - blend) + microX * blend, step, 17);

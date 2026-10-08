@@ -37,6 +37,7 @@ const TUNING = {
   mouthWarpStrength: 1,
   headAmount: 1,
   nodAmount: 1,
+  followSpread: 0,
   blinkRate: 17,
   sparkle: 0.12,
   messiness: 0.76,
@@ -63,12 +64,16 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   let baseZ = 16;
   const slope = Math.tan(camera.fov * Math.PI / 360);
   updateFace(0, state.clock);
+  const headDisplay = shapes.headDisplay;
   const faceSamples = hasFace ? new Float32Array(shapes.BASE) : null;
   const gas = createGas(scene);
   const stars = createStars(scene);
 
   const POS = new Float32Array(N * 3);
   for (let i = 0; i < N * 3; i++) POS[i] = NEB[i];
+  // Simulation stays in local coordinates; head motion is applied only to the
+  // displayed copy, after every particle has followed its original easing.
+  const DISPLAY_POS = new Float32Array(POS);
   const COL = new Float32Array(NEB_COL);
   // Track the same per-particle easing for the atmospheric crossfades.
   const gasWeight = new Float32Array(N).fill(1);
@@ -94,7 +99,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   const largest = Array.from({ length: N }, (_, i) => i).sort((a, b) => SIZE[b] - SIZE[a] || a - b);
   for (let i = 0; i < Math.round(N * 0.005); i++) GLINT[largest[i]] = 1;
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(POS, 3).setUsage(THREE.DynamicDrawUsage));
+  geom.setAttribute('position', new THREE.BufferAttribute(DISPLAY_POS, 3).setUsage(THREE.DynamicDrawUsage));
   geom.setAttribute('color', new THREE.BufferAttribute(COL, 3).setUsage(THREE.DynamicDrawUsage));
   geom.setAttribute('size', new THREE.BufferAttribute(SIZE, 1));
   geom.setAttribute('glint', new THREE.BufferAttribute(GLINT, 1));
@@ -289,14 +294,24 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         const [u, v, rx, ry] = featurePositions[i], scale = shapes.MAP_SCALE;
         const x = (u - 0.5) * scale, y = (0.5 - v) * scale;
         const z = (sampleScalar(shapes.MAPS.depth, u, v) - 0.5) * TUNING.depthAmount;
-        projectPoint.set(x, y, z).applyMatrix4(clipMatrix);
+        projectPoint.set(x, y, z);
+        headDisplay?.transformPoint(projectPoint);
+        projectPoint.applyMatrix4(clipMatrix);
         const sx = projectPoint.x * 0.5 + 0.5, sy = projectPoint.y * 0.5 + 0.5;
-        projectPoint.set(x + rx * scale, y, z).applyMatrix4(clipMatrix);
-        const width = Math.abs(projectPoint.x * 0.5 + 0.5 - sx);
-        projectPoint.set(x, y + ry * scale, z).applyMatrix4(clipMatrix);
-        featureClearance[i].set(sx, sy, width, Math.abs(projectPoint.y * 0.5 + 0.5 - sy));
+        projectPoint.set(x + rx * scale, y, z);
+        headDisplay?.transformPoint(projectPoint);
+        projectPoint.applyMatrix4(clipMatrix);
+        const rightX = projectPoint.x * 0.5 + 0.5 - sx, rightY = projectPoint.y * 0.5 + 0.5 - sy;
+        projectPoint.set(x, y + ry * scale, z);
+        headDisplay?.transformPoint(projectPoint);
+        projectPoint.applyMatrix4(clipMatrix);
+        featureClearance[i].set(sx, sy,
+          Math.hypot(rightX, projectPoint.x * 0.5 + 0.5 - sx),
+          Math.hypot(rightY, projectPoint.y * 0.5 + 0.5 - sy));
       }
-      projectPoint.set(0, 0, 0).applyMatrix4(clipMatrix);
+      projectPoint.set(0, 0, 0);
+      headDisplay?.transformPoint(projectPoint);
+      projectPoint.applyMatrix4(clipMatrix);
       clearCenter.set(projectPoint.x * 0.5 + 0.5, projectPoint.y * 0.5 + 0.5);
       clearExtent.set(TUNING.faceFrame / camera.aspect * 0.53, TUNING.faceFrame * 0.6);
       return;
@@ -304,7 +319,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const m = clipMatrix.elements;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (let i = 0, j = 0; i < N; i++, j += 3) {
-      const x = POS[j], y = POS[j + 1], z = POS[j + 2];
+      const x = DISPLAY_POS[j], y = DISPLAY_POS[j + 1], z = DISPLAY_POS[j + 2];
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
       if (w <= 0.1) { screenPoints[i * 2] = NaN; continue; }
       const sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w * 0.5 + 0.5;
@@ -452,6 +467,9 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const nebulaMix = nebulaProgress < 0.0001 ? 0 : nebulaProgress > 0.9999 ? 1 : nebulaProgress;
     uniforms.nebulaGlints.value = nebulaMix;
     uniforms.faceDisplayMix.value += ((mode === 'face' ? 1 : 0) - uniforms.faceDisplayMix.value) * Math.min(1, dt * 3);
+    const headMix = uniforms.faceDisplayMix.value;
+    if (headDisplay) headDisplay.apply(POS, DISPLAY_POS, headMix);
+    else DISPLAY_POS.set(POS);
     geom.attributes.position.needsUpdate = true;
     geom.attributes.color.needsUpdate = true;
 
