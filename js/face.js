@@ -21,7 +21,7 @@ export const POSE_CONTROLS = [
   ['squashStretch', 'Squash / stretch', -1, 1, 0.01],
   ['headYaw', 'Head yaw (degrees)', -10, 10, 0.1],
   ['headPitch', 'Head pitch (degrees)', -6, 6, 0.1],
-  ['headRoll', 'Head roll (degrees)', -3, 3, 0.1],
+  ['headRoll', 'Head roll (degrees)', -1.5, 1.5, 0.1],
   ['gazeX', 'Gaze horizontal', -1, 1, 0.01],
   ['gazeY', 'Gaze vertical', -1, 1, 0.01]
 ];
@@ -37,15 +37,15 @@ export const EXPR = {
   laugh: completePose({ upperLid: 0.6, lowerLid: 1, browL: 0.2, browR: 0.2,
     smile: 1, mouthOpen: 0.5, squashStretch: -1, headPitch: 4 }),
   cheeky: completePose({ upperLid: 0.35, lowerLid: 0.2, smile: 0.4, tilt: 0.3,
-    gazeX: 0.6, headRoll: -2 }),
+    gazeX: 0.6, headRoll: -1.5 }),
   skeptical: completePose({ browL: -0.5, browR: 0.4, upperLid: 0.3, eyeAsym: 0.3,
-    smile: -0.1, gazeX: -0.5, headRoll: 2, headPitch: -1 }),
+    smile: -0.1, gazeX: -0.5, headRoll: 1.5, headPitch: -1 }),
   thinking: completePose({ browKnit: 0.8, browAngle: 0, browL: -0.35, browR: -0.35,
     upperLid: 0.4, lowerLid: 0.35, mouthPress: 0.5, smile: -0.05, gazeY: -0.15, headPitch: -2 }),
   surprised: completePose({ upperLid: -1, browL: 0.8, browR: 0.8, browAngle: -0.2,
     mouthOpen: 0.35, mouthRound: 0.6, squashStretch: 0.85, headPitch: 2 }),
   concern: completePose({ browAngle: -0.7, browKnit: 0.2, browL: 0.15, browR: 0.15,
-    upperLid: 0.3, lowerLid: 0.1, smile: -0.1, headRoll: 2, headPitch: -1 })
+    upperLid: 0.3, lowerLid: 0.1, smile: -0.1, headRoll: 1.5, headPitch: -1 })
 };
 
 function lerp(a, b, k) {
@@ -62,6 +62,7 @@ export function createFace(shapes, reduce) {
   const gaze = { x: 0, y: 0 };
   const mouthShape = { w: 1, h: 1, round: 0, close: 0 };
   const mouthInput = { envelope: 0, shape: mouthShape, smile: 0.05, speaking: false };
+  let mouthBiasPhase = 1;
   let blinkAge = Infinity, blinkV = 1;
   const mappedFace = createMappedFace(shapes, reduce);
   const motion = createFaceMotion(shapes, reduce);
@@ -140,25 +141,34 @@ export function createFace(shapes, reduce) {
     blinkAge = pose.blink ? 0 : blinkAge + dt;
     blinkV = blinkAge < 0.16 ? 1 - 0.92 * Math.sin(Math.PI * blinkAge / 0.16) : 1;
 
-    // Existing inputs support silent opening, narrowing/rounding and lip press.
-    // During speech preserve the exact audio envelope and all four articulation
-    // channels. No additive opening bias can reopen an m/b/p closure. Smile is
-    // a corner/width warp, not a new aperture; remove it when closure is cued.
+    // Fade the three mouth biases over 150 ms, without resetting on a reversal.
+    // Smile stays with the pose: closure controls aperture, not the corners.
+    mouthBiasPhase = clamp(mouthBiasPhase + (speaking ? -step : step) / 0.15, 0, 1);
+    if (mouthBiasPhase < 1e-12) mouthBiasPhase = 0;
+    else if (mouthBiasPhase > 1 - 1e-12) mouthBiasPhase = 1;
+    // Even a partial articulation cue takes exact precedence. Restart recovery
+    // from zero after it clears so a residual end-of-speech cue cannot conceal
+    // a completed fade and then reveal the silent mouth pose in one frame.
+    if (shape.close > 0) mouthBiasPhase = 0;
+    const mouthBias = mouthBiasPhase * mouthBiasPhase * (3 - 2 * mouthBiasPhase);
     mouthShape.w = shape.w;
     mouthShape.h = shape.h;
     mouthShape.round = shape.round;
     mouthShape.close = shape.close;
     let mouthEnvelope = envelope;
-    if (speaking) {
-      const closure = clamp(shape.close / 0.1, 0, 1);
-      const closureGuard = closure * closure * (3 - 2 * closure);
-      rendered.smile = 0.05 + cur.smile * (1 - closureGuard);
-    } else {
+    if (mouthBias === 1) {
+      // Keep the settled silent pose's original arithmetic exactly.
       mouthEnvelope = Math.max(envelope, cur.mouthOpen);
       mouthShape.h = shape.h + cur.mouthOpen * 0.25;
       mouthShape.w = shape.w * (1 - cur.mouthRound * 0.38);
       mouthShape.round = Math.max(shape.round, cur.mouthRound);
       mouthShape.close = Math.max(shape.close, cur.mouthPress);
+    } else if (mouthBias > 0) {
+      mouthEnvelope += Math.max(0, cur.mouthOpen - envelope) * mouthBias;
+      mouthShape.h += cur.mouthOpen * 0.25 * mouthBias;
+      mouthShape.w *= 1 - cur.mouthRound * 0.38 * mouthBias;
+      mouthShape.round += Math.max(0, cur.mouthRound - shape.round) * mouthBias;
+      mouthShape.close += Math.max(0, cur.mouthPress - shape.close) * mouthBias;
     }
     mouthInput.envelope = mouthEnvelope;
     mouthInput.smile = rendered.smile;

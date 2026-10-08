@@ -58,13 +58,13 @@ const TUNING = {
       smile: 0.4, browL: 0, browR: 0, tilt: 0.3, upperLid: 0.35,
       lowerLid: 0.2, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: 0, headRoll: -2, gazeX: 0.6, gazeY: 0
+      headPitch: 0, headRoll: -1.5, gazeX: 0.6, gazeY: 0
     },
     skeptical: {
       smile: -0.1, browL: -0.5, browR: 0.4, tilt: 0, upperLid: 0.3,
       lowerLid: 0, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0.3,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: -1, headRoll: 2, gazeX: -0.5, gazeY: 0
+      headPitch: -1, headRoll: 1.5, gazeX: -0.5, gazeY: 0
     },
     thinking: {
       smile: -0.05, browL: -0.35, browR: -0.35, tilt: 0, upperLid: 0.4,
@@ -82,7 +82,7 @@ const TUNING = {
       smile: -0.1, browL: 0.15, browR: 0.15, tilt: 0, upperLid: 0.3,
       lowerLid: 0.1, slant: 0, browKnit: 0.2, browAngle: -0.7, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: -1, headRoll: 2, gazeX: 0, gazeY: 0
+      headPitch: -1, headRoll: 1.5, gazeX: 0, gazeY: 0
     },
   },
   dissolveAmount: 1,
