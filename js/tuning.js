@@ -215,6 +215,19 @@ function createVoiceEffect(tuning, onChange, references) {
   return group;
 }
 
+function captureDuration(reply) {
+  const lastArrival = reply.events.at(-1)?.t ?? 0;
+  if (reply.interrupted) return lastArrival;
+  let audioEnd = null;
+  for (const event of reply.events) {
+    if (event.type !== 'addAudio') continue;
+    const samples = atob(event.data).length / 2;
+    audioEnd = Math.max(audioEnd ?? event.t + 100, event.t) + samples / 44100 * 1000;
+  }
+  // Transport end can arrive while buffered audio is still playing.
+  return Math.max(lastArrival, audioEnd ?? 0);
+}
+
 function createSpeechLab(speechLab) {
   const lab = document.createElement('div');
   lab.className = 'speech-lab';
@@ -256,7 +269,91 @@ function createSpeechLab(speechLab) {
   const status = document.createElement('span');
   status.className = 'tuning-status';
   status.setAttribute('role', 'status');
-  lab.append(label, select, actions, slowLabel, status);
+  const captureLabel = document.createElement('label');
+  captureLabel.htmlFor = 'speech-lab-capture-file';
+  captureLabel.textContent = 'Load capture…';
+  const captureFile = document.createElement('input');
+  captureFile.type = 'file';
+  captureFile.id = 'speech-lab-capture-file';
+  captureFile.className = 'speech-lab-capture-file';
+  captureFile.accept = '.json,application/json';
+  const captureSelect = document.createElement('select');
+  captureSelect.id = 'speech-lab-capture-reply';
+  captureSelect.setAttribute('aria-label', 'Captured reply');
+  captureSelect.style.gridColumn = '1 / -1';
+  const emptyCapture = document.createElement('option');
+  emptyCapture.textContent = 'No capture loaded';
+  captureSelect.append(emptyCapture);
+  captureSelect.disabled = true;
+  const replay = document.createElement('button');
+  replay.type = 'button';
+  replay.id = 'speech-lab-replay';
+  replay.textContent = 'Replay';
+  replay.disabled = true;
+  const captureActions = document.createElement('div');
+  captureActions.className = 'tuning-footer';
+  captureActions.style.gridColumn = '1 / -1';
+  captureActions.append(replay);
+  lab.append(label, select, actions, slowLabel, captureLabel, captureFile, captureSelect, captureActions, status);
+
+  let linesReady = false, captureLoading = false;
+  let capturedReplies = [], captureLoadRequest = 0;
+  let pending = false, playbackRequest = 0;
+  function setPending(value) {
+    pending = value;
+    play.disabled = value || !linesReady;
+    simulate.disabled = value || !linesReady;
+    select.disabled = value || !linesReady;
+    slow.disabled = value;
+    interrupt.disabled = !value;
+    captureFile.disabled = value;
+    captureSelect.disabled = value || captureLoading || !capturedReplies.length;
+    replay.disabled = captureSelect.disabled;
+  }
+
+  captureFile.addEventListener('change', async () => {
+    const file = captureFile.files?.[0];
+    if (!file) return;
+    const request = ++captureLoadRequest;
+    captureFile.value = '';
+    capturedReplies = [];
+    captureLoading = true;
+    captureSelect.replaceChildren(emptyCapture);
+    emptyCapture.textContent = 'Loading capture…';
+    setPending(pending);
+    status.textContent = 'Loading capture…';
+    try {
+      const capture = await speechLab.loadCapture(file);
+      if (request !== captureLoadRequest) return;
+      capturedReplies = capture.replies;
+      captureSelect.replaceChildren(...capturedReplies.map((reply, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        const duration = captureDuration(reply);
+        const words = reply.text.trim().split(/\s+/).filter(Boolean);
+        const preview = words.slice(0, 7).join(' ') + (words.length > 7 ? '…' : '');
+        option.textContent = `${index + 1}. ${(duration / 1000).toFixed(2)}s — ${preview || '(no text)'}` +
+          (reply.interrupted ? ' — interrupted' : '');
+        return option;
+      }));
+      if (!capturedReplies.length) {
+        emptyCapture.textContent = 'No replies in capture';
+        captureSelect.append(emptyCapture);
+      }
+      status.textContent = `Loaded ${capturedReplies.length} ${capturedReplies.length === 1 ? 'reply' : 'replies'}.`;
+    } catch {
+      if (request !== captureLoadRequest) return;
+      capturedReplies = [];
+      emptyCapture.textContent = 'No capture loaded';
+      captureSelect.replaceChildren(emptyCapture);
+      status.textContent = 'Could not load this capture file.';
+    } finally {
+      if (request === captureLoadRequest) {
+        captureLoading = false;
+        setPending(pending);
+      }
+    }
+  });
 
   fetch(new URL('../voice/lines.json', import.meta.url))
     .then(response => {
@@ -274,9 +371,8 @@ function createSpeechLab(speechLab) {
         option.textContent = `${line.id} — ${line.text.replace(/\[[^\]]*\]/g, '').trim()}`;
         return option;
       }));
-      select.disabled = false;
-      play.disabled = false;
-      simulate.disabled = false;
+      linesReady = true;
+      setPending(pending);
     })
     .catch(error => {
       loading.textContent = 'Lines unavailable';
@@ -284,15 +380,6 @@ function createSpeechLab(speechLab) {
       console.warn('Speech lab unavailable.', error);
     });
 
-  let pending = false, playbackRequest = 0;
-  function setPending(value) {
-    pending = value;
-    play.disabled = value;
-    simulate.disabled = value;
-    select.disabled = value;
-    slow.disabled = value;
-    interrupt.disabled = !value;
-  }
   function formatReport(report) {
     if (!report) return 'Ready';
     if (report.interrupted) return 'Interrupted';
@@ -321,6 +408,21 @@ function createSpeechLab(speechLab) {
   }
   play.addEventListener('click', () => run(false));
   simulate.addEventListener('click', () => run(true));
+  replay.addEventListener('click', async () => {
+    const reply = capturedReplies[Number(captureSelect.value)];
+    if (pending || captureLoading || !reply) return;
+    const request = ++playbackRequest;
+    setPending(true);
+    status.textContent = 'Replaying…';
+    try {
+      const report = await speechLab.replay(reply);
+      if (request === playbackRequest) status.textContent = report?.interrupted ? 'Interrupted' : 'Ready';
+    } catch {
+      if (request === playbackRequest) status.textContent = 'This capture could not be replayed.';
+    } finally {
+      if (request === playbackRequest) setPending(false);
+    }
+  });
   interrupt.addEventListener('click', () => {
     playbackRequest++;
     speechLab.interrupt();

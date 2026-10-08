@@ -87,6 +87,9 @@ body { background: var(--void); color: var(--ink); font-family: var(--mono); ove
 }
 .live-group input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
 .live-group button:disabled { opacity: 0.5; cursor: default; }
+.live-capture { align-items: center; }
+.live-capture label { display: flex; align-items: center; gap: 6px; }
+.live-capture input { width: auto; padding: 0; }
 button {
   font-family: var(--display); font-weight: 500; font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink); background: var(--veil); border: 1px solid var(--rule); border-radius: 2px;
@@ -147,7 +150,7 @@ button.primary:hover { background: rgba(255, 181, 98, 0.1); }
 .tuning-footer { display: flex; align-items: center; gap: 10px; }
 .tuning-footer button { padding: 6px 10px; font-size: 0.65rem; }
 .tuning-status { color: var(--dim); font-size: 0.6rem; }
-.speech-lab { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: center; }
+.speech-lab { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: center; min-width: 0; }
 .speech-lab label, .speech-lab .tuning-status { grid-column: 1 / -1; }
 .speech-lab select {
   min-width: 0; width: 100%; padding: 6px; border: 1px solid var(--rule); border-radius: 2px;
@@ -155,6 +158,7 @@ button.primary:hover { background: rgba(255, 181, 98, 0.1); }
 }
 .speech-lab button { padding: 6px 10px; font-size: 0.65rem; }
 .speech-lab button:disabled, .speech-lab select:disabled { opacity: 0.5; cursor: default; }
+.speech-lab-capture-file { grid-column: 1 / -1; width: 100%; min-width: 0; }
 
 @media (max-width: 560px) {
   .tuning { right: 12px; width: 220px; max-width: calc(100vw - 24px); }

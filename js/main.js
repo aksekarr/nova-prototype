@@ -3,7 +3,7 @@ import { createFace } from './face.js';
 import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 import { loadFaceMap } from './facemap.js';
-import { loadReferenceClips, playReferenceClip, stopReferenceClip } from './flanger.js';
+import { loadReferenceClips, playReferenceClip } from './flanger.js';
 
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const params = new URLSearchParams(window.location.search);
@@ -33,6 +33,7 @@ const el = {
 const LABEL = { nebula: 'Nebula', face: 'Face', tree: 'Tree' };
 let soundOn = true;
 let liveSimulation = null;
+let captureReplay = null;
 let liveSpeaking = false;
 let liveSession = null;
 let liveSetupPending = false;
@@ -42,6 +43,10 @@ const voice = createVoice({
   caption: el.caption,
   readout: el.voice
 });
+const captureTools = params.get('live') === '1' || params.get('tune') === '1'
+  ? await import('./capture.js') : null;
+const captureRecorder = params.get('live') === '1'
+  ? captureTools.createCaptureRecorder(voice.stream, { onChange: updateCaptureControls }) : null;
 voice.preload(['hello', 'intro', 'trees', 'tree', 'back', 'test']).then(() => {
   el.wake.disabled = false;
   el.line.disabled = false;
@@ -82,6 +87,8 @@ startStage({
   speechLab: {
     play: playLabLine,
     simulate: simulateLabLine,
+    loadCapture: async file => captureTools.parseCapture(await file.text()),
+    replay: replayCapture,
     interrupt: stopAll,
     references: {
       load: loadReferenceClips,
@@ -117,6 +124,9 @@ function stopAll() {
   if (liveSession) stopLive(liveSession, 'Live stopped. At rest.');
   if (liveSimulation) liveSimulation.interrupt();
   liveSimulation = null;
+  if (captureReplay) captureReplay.interrupt();
+  captureReplay = null;
+  voice.stream.interrupt();
   liveSpeaking = false;
   state.speaking = false;
   voice.stop();
@@ -171,7 +181,7 @@ async function simulateLabLine(lineId, options) {
   }
 }
 async function runSequence() {
-  stopReferenceClip();
+  stopAll();
   const id = ++seqId; function alive() { return id === seqId; }
   setExpr('neutral'); if (!setMode('face')) return; restCaption('Forming…');
   await sleep(3000); if (!alive()) return;
@@ -188,6 +198,31 @@ async function runSequence() {
   setExpr('thinking'); restCaption('Listening.');
   await sleep(1800); if (!alive()) return;
   setExpr('neutral');
+}
+
+async function replayCapture(reply) {
+  if (params.get('tune') !== '1') return;
+  stopAll();
+  const id = seqId;
+  if (state.mode !== 'face') {
+    if (!setMode('face')) return;
+    restCaption('Forming…');
+  }
+  await sleep(Math.max(0, 2800 - (state.clock - state.modeT) * 1000));
+  if (id !== seqId) return;
+  const replay = captureTools.startCaptureReplay(voice, reply);
+  captureReplay = replay;
+  liveSpeaking = true;
+  try {
+    const metrics = await replay.done;
+    return { interrupted: metrics.interrupted };
+  } finally {
+    if (captureReplay === replay) {
+      captureReplay = null;
+      liveSpeaking = false;
+      state.speaking = false;
+    }
+  }
 }
 
 el.wake.addEventListener('click', function () {
@@ -226,12 +261,30 @@ if (params.get('live') === '1') {
     <input id="live-agent-id" type="text" autocomplete="off" spellcheck="false" aria-label="Agent ID" placeholder="Agent ID">
     <button id="live-start" type="button">Start</button>
     <button id="live-stop" type="button" disabled>Stop</button>
+  </div><div class="row live-capture">
+    <label><input id="live-capture" type="checkbox"> Capture replies</label>
+    <button id="live-download" type="button" disabled>Download captures (0)</button>
   </div>`;
   document.querySelector('.dock').appendChild(group);
   liveControls = {
     input: document.getElementById('live-agent-id'),
-    start: document.getElementById('live-start'), stop: document.getElementById('live-stop')
+    start: document.getElementById('live-start'), stop: document.getElementById('live-stop'),
+    capture: document.getElementById('live-capture'), download: document.getElementById('live-download')
   };
+  liveControls.capture.addEventListener('change', () => {
+    captureRecorder.setEnabled(liveControls.capture.checked);
+  });
+  liveControls.download.addEventListener('click', () => {
+    const session = captureRecorder.snapshot();
+    const url = URL.createObjectURL(new Blob([JSON.stringify(session)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nova-captures-${session.capturedAt.replace(/[:.]/g, '-')}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
   liveControls.start.addEventListener('click', startLive);
   liveControls.stop.addEventListener('click', () => {
     if (liveSession) stopLive(liveSession, 'Live stopped. At rest.');
@@ -240,6 +293,12 @@ if (params.get('live') === '1') {
     liveControls.input.value = '';
     if (liveSession) stopLive(liveSession, 'Live stopped. At rest.');
   });
+}
+
+function updateCaptureControls() {
+  if (!liveControls) return;
+  liveControls.download.textContent = `Download captures (${captureRecorder.count})`;
+  liveControls.download.disabled = captureRecorder.count === 0;
 }
 
 function loadLiveClient() {
