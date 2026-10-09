@@ -654,7 +654,8 @@ export function createFace(shapes, reduce) {
     mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
     motion.update(clock);
     follow.setSquashStretch(cur.squashStretch);
-    follow.updateGesture(step, cues, automaticEnabled, automatic.state.gestureWindows);
+    follow.updateGesture(step, cues, automaticEnabled, automatic.state.gestureWindows,
+      beats, automatic.state.blockingEvent);
     follow.update(dt, pose);
     refreshSelection();
   }
@@ -807,20 +808,30 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   let gestureSettings = { anticipation: 0.08, compress: 0.12, hold: 0.1,
     release: 0.25, settle: 0.4, amount: 0.04, chuckleScale: 0.75,
     widen: 0.5, overshoot: 0.2, coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5 };
+  const accentSettings = { direction: 1, amount: 0.029, attack: 0.25, hold: 0.2,
+    release: 0.4, overshoot: 0.06, settle: 0.5, coreDelay: 0.02, edgeDelay: 0.12,
+    edgeOvershoot: 0.5, widen: 0.5, spacing: 2.9, threshold: 0 };
+  let accentAmount = 1, lastAccent = -Infinity, accentUntil = -Infinity;
+  let accentCueMap = {}, accentSighRelease = 0.8, previousGestureWindows = [];
+  let gestureKind = null, gestureWiden = gestureSettings.widen, sourceWiden = gestureWiden;
   let gestureAmount = 1, gestureReply = null, gesturePosition = 0;
   let gesture = null, recovery = null, gestureVisible = false, gestureCore = 0, sourceCore = 0;
   let gestureCursor = 0, gestureSampledAt = 0, gestureNextSample = 0;
   const GESTURE_STEP = 1 / 240;
   let gestureHistory = new Float64Array(256 * 3);
   const gestureSample = new Float64Array(3), gestureNow = new Float64Array(3);
+  const gestureNext = new Float64Array(3);
   const gestureSeen = new Set();
   const gestureState = { value: 0, time: 0, activeId: null, starts: 0,
     delay: gestureDelay, edge: gestureEdge, values: gestureValues };
   diagnostics.gesture = gestureState;
+  const accentState = { value: 0, time: 0, activeId: null, starts: 0,
+    lastStart: -Infinity, duration: 0 };
+  diagnostics.accent = accentState;
 
-  function setGestureDelays() {
-    for (let i = 0; i < count; i++) gestureDelay[i] = gestureSettings.coreDelay * gestureInner[i]
-      + (gestureSettings.edgeDelay - gestureSettings.coreDelay) * gestureEdge[i];
+  function setGestureDelays(settings = gestureSettings) {
+    for (let i = 0; i < count; i++) gestureDelay[i] = settings.coreDelay * gestureInner[i]
+      + (settings.edgeDelay - settings.coreDelay) * gestureEdge[i];
   }
   setGestureDelays();
 
@@ -829,6 +840,21 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     out[0] = out[1] = out[2] = 0;
     if (age <= 0) return;
     const ramp = (t, duration) => duration > 0 ? swarmSmooth(t / duration) : 1;
+    if (gestureKind === 'accent') {
+      out[2] = ramp(age, g.attack);
+      if (age < g.attack) out[0] = out[2];
+      else if ((age -= g.attack) < g.hold) out[0] = 1;
+      else if ((age -= g.hold) < g.release) {
+        out[0] = lerp(1, -g.overshoot, ramp(age, g.release));
+        out[1] = Math.min(0, out[0]) * g.edgeOvershoot;
+      } else if ((age -= g.release) < g.settle) {
+        out[0] = -g.overshoot * (1 - ramp(age, g.settle));
+        out[1] = out[0] * g.edgeOvershoot;
+      }
+      out[0] *= gesture.strength;
+      out[1] *= gesture.strength;
+      return;
+    }
     out[2] = ramp(age, g.anticipation);
     if (age < g.anticipation) out[0] = g.overshoot * out[2];
     else if ((age -= g.anticipation) < g.compress) out[0] = lerp(g.overshoot, -1, ramp(age, g.compress));
@@ -847,6 +873,14 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   function sampleGesture(at, out) {
     if (at <= 0) { out.fill(0); return; }
     if (at >= gestureSampledAt) {
+      if (gestureKind === 'accent') {
+        // Interpolate the same 240 Hz interval at every display rate, even
+        // when its upper sample lies beyond this frame's playback position.
+        gestureCurve(gestureSampledAt + GESTURE_STEP, gestureNext);
+        const mix = (at - gestureSampledAt) / GESTURE_STEP;
+        for (let c = 0; c < 3; c++) out[c] = lerp(gestureHistory[gestureCursor * 3 + c], gestureNext[c], mix);
+        return;
+      }
       const mix = gesture.age > gestureSampledAt ? (at - gestureSampledAt) / (gesture.age - gestureSampledAt) : 1;
       for (let c = 0; c < 3; c++) out[c] = lerp(gestureHistory[gestureCursor * 3 + c], gestureNow[c], mix);
     } else {
@@ -867,6 +901,8 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     }
     gestureCurve(gesture.age, gestureNow);
     gestureCore = sourceCore * (1 - gestureNow[2]) + gestureNow[0];
+    gestureWiden = gestureKind === 'accent' ? gesture.settings.widen
+      : lerp(sourceWiden, gestureSettings.widen, gestureNow[2]);
     for (let i = 0; i < count; i++) {
       if (gestureDelay[i] === 0) { gestureValues[i] = gestureCore; continue; }
       sampleGesture(gesture.age - gestureDelay[i], gestureSample);
@@ -878,6 +914,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   function restGesture() {
     gesture = recovery = null;
     gestureVisible = false; gestureCore = 0;
+    gestureKind = null;
     gestureValues.fill(0); gestureSource.fill(0);
     gestureState.activeId = null;
   }
@@ -885,43 +922,75 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   function recoverGesture() {
     if (!gestureVisible || recovery) return;
     gestureSource.set(gestureValues); sourceCore = gestureCore;
-    recovery = { age: 0, duration: gestureSettings.settle };
+    recovery = { age: 0, duration: gestureKind === 'accent' ? gesture.settings.settle : gestureSettings.settle };
     gesture = null;
     gestureState.activeId = null;
+  }
+
+  function resetGestureHistory(delay) {
+    const samples = Math.max(2, Math.ceil(delay / GESTURE_STEP) + 2);
+    if (gestureHistory.length !== samples * 3) gestureHistory = new Float64Array(samples * 3);
+    else gestureHistory.fill(0);
+    gestureCursor = 0; gestureSampledAt = 0; gestureNextSample = GESTURE_STEP;
+    gestureVisible = true;
   }
 
   function startGesture(window, position) {
     const continuing = gestureVisible;
     gestureSource.set(gestureValues); sourceCore = gestureCore;
+    sourceWiden = continuing ? gestureWiden : gestureSettings.widen;
+    gestureKind = 'gesture';
+    setGestureDelays();
     recovery = null;
     const settings = { ...gestureSettings };
     const duration = settings.anticipation + settings.compress + settings.hold + settings.release + settings.settle;
     const delay = Math.max(settings.coreDelay, settings.edgeDelay);
     gesture = { id: window.id, start: window.start, age: continuing ? 0 : Math.max(0, position - window.start), settings,
       duration: duration + delay, strength: settings.amount * gestureAmount * (window.kind === 'chuckle' ? settings.chuckleScale : 1) };
-    const samples = Math.max(2, Math.ceil(delay / GESTURE_STEP) + 2);
-    if (gestureHistory.length !== samples * 3) gestureHistory = new Float64Array(samples * 3);
-    else gestureHistory.fill(0);
-    gestureCursor = 0; gestureSampledAt = 0; gestureNextSample = GESTURE_STEP;
-    gestureVisible = true;
+    resetGestureHistory(delay);
     gestureState.activeId = window.id; gestureState.starts++;
     renderGesture();
   }
 
-  function updateGesture(dt, cues, enabled, windows = []) {
+  function startAccent(beat, position) {
+    // Only a resting field can start an accent. Laughter reuses startGesture's
+    // existing handover from the displayed field, never a second deformation.
+    const settings = { ...accentSettings };
+    const duration = settings.attack + settings.hold + settings.release + settings.settle
+      + Math.max(settings.coreDelay, settings.edgeDelay);
+    const delay = Math.max(settings.coreDelay, settings.edgeDelay);
+    gestureKind = 'accent';
+    sourceWiden = gestureWiden = settings.widen;
+    sourceCore = 0;
+    gestureSource.fill(0);
+    setGestureDelays(settings);
+    gesture = { id: `accent:${beat.position}`, start: beat.position,
+      age: Math.max(0, position - beat.position), settings, duration,
+      strength: settings.direction * settings.amount * accentAmount * (0.7 + 0.3 * clamp(beat.strength, 0, 1)) };
+    resetGestureHistory(delay);
+    lastAccent = beat.position; accentUntil = lastAccent + duration;
+    accentState.lastStart = lastAccent; accentState.duration = duration; accentState.starts++;
+    gestureState.activeId = gesture.id;
+    renderGesture();
+  }
+
+  function updateGesture(dt, cues, enabled, windows = [], beats = [], blockingEvent = false) {
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     const reply = cues?.replyId ?? null, position = cues?.position ?? 0;
     const replaced = reply !== gestureReply;
     if (replaced) {
       recoverGesture(); gestureSeen.clear();
       gestureReply = reply;
+      lastAccent = accentUntil = -Infinity;
+      previousGestureWindows = [];
     }
     // The first gap frame may reach the just-finished chunk's exact end.
     // Thereafter its playback position is constant, freezing the entire field.
     const speechStep = !replaced && cues ? Math.max(0, position - gesturePosition) : 0;
     gesturePosition = position;
     const allowed = enabled && gestureAmount > 0 && cues;
-    if (!allowed) recoverGesture();
+    const accentAllowed = enabled && accentAmount > 0 && cues;
+    if (gestureKind === 'accent' ? !accentAllowed : !allowed) recoverGesture();
     if (recovery) {
       // Stop/replacement/disable recover the entire visible field, including
       // its delayed tails, rather than flushing the history to neutral.
@@ -931,8 +1000,9 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
       for (let i = 0; i < count; i++) gestureValues[i] = gestureSource[i] * fade;
       if (fade === 0) restGesture();
     } else if (gesture) {
-      const window = windows.find(window => window.id === gesture.id);
-      gesture.age += speechStep;
+      const window = gestureKind === 'accent' ? null : windows.find(window => window.id === gesture.id);
+      if (gestureKind === 'accent') gesture.age = Math.max(gesture.age, position - gesture.start);
+      else gesture.age += speechStep;
       if (window) {
         // Corrections slew the existing occurrence on playback time. Its age
         // cannot move backward, and a zero-time update cannot jump or restart.
@@ -950,8 +1020,29 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
       gestureSeen.add(window.id);
       if (allowed) startGesture(window, position);
     }
+    if (accentAllowed && cues.state !== 'gap') for (const beat of beats) {
+      if (beat.replyId !== reply || !Number.isFinite(beat.position) || !Number.isFinite(beat.strength)
+          || beat.position < 0.3 || beat.position > position || beat.strength < accentSettings.threshold) continue;
+      // Sub-frame beats can precede a window retired on this display frame.
+      // Keep its exact interval for that last step; sighs have no B1 window.
+      const inside = window => beat.position >= window.start && beat.position < window.end;
+      if (blockingEvent || windows.some(inside) || previousGestureWindows.some(inside)
+          || cues.cues?.some(cue => accentCueMap[cue.name]?.kind === 'sigh'
+            && beat.position >= cue.start && beat.position < cue.end + accentSighRelease)
+          || gestureVisible) continue;
+      const duration = accentSettings.attack + accentSettings.hold + accentSettings.release + accentSettings.settle
+        + Math.max(accentSettings.coreDelay, accentSettings.edgeDelay);
+      if (beat.position < accentUntil || beat.position - lastAccent < Math.max(accentSettings.spacing, duration)) continue;
+      if (accentSettings.amount === 0 || accentSettings.direction === 0) continue;
+      startAccent(beat, position);
+    }
+    previousGestureWindows = windows;
     gestureState.value = gestureCore;
     gestureState.time = gesture?.age ?? recovery?.age ?? 0;
+    gestureState.kind = gestureKind;
+    accentState.value = gestureKind === 'accent' ? gestureCore : 0;
+    accentState.time = gestureKind === 'accent' ? gestureState.time : 0;
+    accentState.activeId = gestureKind === 'accent' ? gestureState.activeId : null;
   }
 
   function update(dt, pose) {
@@ -1040,7 +1131,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     if (gestureVisible) {
       for (let i = 0, j = 0; i < count; i++, j += 3) {
         const value = gestureValues[i] * amount * (i < filamentEnd ? attachment[i] : 0);
-        gestured[j] = localSource[j] - (localSource[j] - pivotX) * value * gestureSettings.widen;
+        gestured[j] = localSource[j] - (localSource[j] - pivotX) * value * gestureWiden;
         gestured[j + 1] = localSource[j + 1] + (localSource[j + 1] - pivotY) * value;
         gestured[j + 2] = localSource[j + 2];
       }
@@ -1066,7 +1157,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     }
     if (gestureVisible) {
       const value = gestureCore * displayAmount;
-      point.x -= (point.x - pivotX) * value * gestureSettings.widen;
+      point.x -= (point.x - pivotX) * value * gestureWiden;
       point.y += (point.y - pivotY) * value;
     }
     const x = point.x, y = point.y, z = point.z, m = matrices;
@@ -1080,11 +1171,22 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
     applyTuning(tuning) {
     if (Number.isFinite(tuning.gestureAmount)) gestureAmount = clamp(tuning.gestureAmount, 0, 2);
+    if (Number.isFinite(tuning.accentAmount)) accentAmount = clamp(tuning.accentAmount, 0, 2);
+    if (tuning.cueMap) accentCueMap = tuning.cueMap;
+    if (Number.isFinite(tuning.cueTiming?.sighRelease)) accentSighRelease = Math.max(0, tuning.cueTiming.sighRelease);
+    if (tuning.accent) {
+      for (const key of Object.keys(accentSettings)) if (Number.isFinite(tuning.accent[key])) {
+        accentSettings[key] = key === 'direction' ? clamp(tuning.accent[key], -1, 1) : Math.max(0, tuning.accent[key]);
+      }
+    }
     if (tuning.gesture) {
       for (const key of Object.keys(gestureSettings)) if (Number.isFinite(tuning.gesture[key])) {
         gestureSettings[key] = Math.max(0, tuning.gesture[key]);
       }
-      setGestureDelays();
+      if (gestureKind !== 'accent') {
+        setGestureDelays();
+        gestureWiden = sourceWiden = gestureSettings.widen;
+      }
     }
     const names = ['swarm', 'swarmCoherence', 'surroundWeight', 'headDepth'];
     const low = [0, 0, 0, 1], high = [2, 1, 1, 4];

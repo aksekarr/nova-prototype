@@ -43,6 +43,12 @@ const TUNING = {
     amount: 0.04, chuckleScale: 0.75, widen: 0.5, overshoot: 0.2,
     coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5
   },
+  accentAmount: 1,
+  accent: {
+    direction: 1, amount: 0.029, attack: 0.25, hold: 0.2, release: 0.4,
+    overshoot: 0.06, settle: 0.5, coreDelay: 0.02, edgeDelay: 0.12,
+    edgeOvershoot: 0.5, widen: 0.5, spacing: 2.9, threshold: 0
+  },
   moodAmount: 1,
   browFlashAmount: 1,
   microAmount: 1,

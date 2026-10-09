@@ -46,6 +46,13 @@ const FLANGER_CONTROLS = [
 const HEAD_CONTROLS = [
   ['laughAmount', 'Laugh amount', 0, 2, 0.01],
   ['gestureAmount', 'Gesture amount', 0, 2, 0.01],
+  ['accentAmount', 'Accent amount', 0, 2, 0.01],
+  ['accent.spacing', 'Accent spacing', 0.9, 4, 0.01],
+  ['accent.threshold', 'Accent threshold', 0, 1, 0.01],
+  ['accent.direction', 'Accent direction', -1, 1, 0.01],
+  ['accent.attack', 'Accent rise (s)', 0.03, 0.8, 0.01],
+  ['accent.release', 'Accent fall (s)', 0.1, 1, 0.01],
+  ['accent.overshoot', 'Accent bounce', 0, 0.4, 0.01],
   ['moodAmount', 'Mood amount', 0, 2, 0.01],
   ['browFlashAmount', 'Brow flash amount', 0, 2, 0.01],
   ['microAmount', 'Micro expression amount', 0, 2, 0.01],
@@ -298,6 +305,9 @@ function createHeadEyes(tuning, onChange) {
   group.append(toggleLabel);
 
   for (const [key, labelText, min, max, step] of HEAD_CONTROLS) {
+    const [root, property] = key.split('.');
+    const target = property ? tuning[root] : tuning;
+    const targetKey = property || root;
     const label = document.createElement('label');
     label.className = 'tuning-control';
     const name = document.createElement('span');
@@ -305,15 +315,15 @@ function createHeadEyes(tuning, onChange) {
     const value = document.createElement('output');
     const input = document.createElement('input');
     input.type = 'range';
-    input.id = `tuning-${key}`;
+    input.id = `tuning-${key.replace('.', '-')}`;
     input.min = min;
     input.max = max;
     input.step = step;
-    input.value = tuning[key];
+    input.value = target[targetKey];
     value.htmlFor = input.id;
     value.value = input.value;
     input.addEventListener('input', () => {
-      tuning[key] = Number(input.value);
+      target[targetKey] = Number(input.value);
       value.value = input.value;
       onChange(key);
     });
