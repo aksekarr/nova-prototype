@@ -1,6 +1,7 @@
 import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
+import { createFaceForm } from './face-form.js';
 
 import { POSE_CONTROLS, NEUTRAL_POSE, EXPR,
   createCueExpressions, createBrowFlashes, createMicroExpressions } from './face-expressions.js';
@@ -37,11 +38,12 @@ export function createFace(shapes, reduce) {
   const mappedFace = createMappedFace(shapes, reduce);
   const motion = createFaceMotion(shapes, reduce);
   const head = createFaceHead(reduce);
-  const follow = createHeadFollow(shapes, motion.phase);
+  const follow = createHeadFollow(shapes, motion.phase, reduce);
   const diagnostics = { expression: cur, rendered, mouth: mouthInput, gaze,
     pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
     maxParameterStepKey: '', mapped: mappedFace.diagnostics,
-    browFlash: flashes.state, micro: micro.state, listening: listeningState };
+    browFlash: flashes.state, micro: micro.state, listening: listeningState,
+    head: head.diagnostics, form: follow.diagnostics.form };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
   shapes.headDisplay = follow;
@@ -209,6 +211,8 @@ export function createFace(shapes, reduce) {
     diagnostics.poseIntensity = poseIntensity;
     mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
     motion.update(clock);
+    follow.updateForm(step, automaticEnabled && !speaking && activeReply === null && !automatic.releasing,
+      head.diagnostics.attention);
     follow.setSquashStretch(cur.squashStretch);
     follow.updateGesture(step, cues, automaticEnabled, automatic.gestureWindows,
       beats, automatic.blockingEvent);
@@ -259,7 +263,7 @@ export function createFace(shapes, reduce) {
 
 // Pose history belongs to the display pass; intrinsic simulation buffers and
 // the shapes generator remain untouched. Every star keeps its own fixed traits.
-export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
+export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduce = false) {
   const { BASE, I, UV, MAP_SCALE, MAPS, MOTION } = shapes;
   const count = BASE.length / 3, coreEnd = I.face[1], filamentEnd = I.filaments[1];
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -350,6 +354,8 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     const length = Math.hypot(dx, dy, dz) || 1;
     shared[k + 1] = dx / length; shared[k + 2] = dy / length; shared[k + 3] = dz / length;
   }
+  const form = createFaceForm({ base: BASE, edge: gestureEdge, end: filamentEnd, width, height,
+    centreX: (minX + maxX) * .5, centreY: (minY + maxY) * .5 }, reduce);
   const BUCKETS = 32, SAMPLES = 64, STEP = 1 / 120;
   const history = new Float64Array(SAMPLES * 5);
   const previous = new Float64Array(5), current = new Float64Array(5), sample = new Float64Array(5);
@@ -357,7 +363,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   const settings = new Float64Array([1, 0.5, 0, 2.5]), targets = new Float64Array(settings);
   let initialized = false, cursor = 0, time = 0, sampledAt = 0, nextSample = STEP;
   let displayAmount = 0, lastCoherence = -1, angularSpeed = 0;
-  const diagnostics = { angularSpeed: 0, deviationScale: 0 };
+  const diagnostics = { angularSpeed: 0, deviationScale: 0, form: form.state };
 
   // This clock advances on audio position, independently of the existing head
   // history. Fixed-time analytic samples retain short transients at any fps.
@@ -667,7 +673,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     }
     updateAttachment(source, BASE, phase, departing, traits, free, attachment, offsets, blends,
       coreEnd, filamentEnd, width, settings[2]);
-    let localSource = source;
+    let localSource = form.apply(source, attachment, amount);
     // The original attachment field blends the local expression into attached
     // surroundings. Loose background stars receive no expression deformation.
     // The exact-zero path keeps the previous floating-point operation order.
@@ -677,10 +683,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
       const lift = Math.max(0, -stretch);
       for (let i = 0, j = 0; i < count; i++, j += 3) {
         const weight = i < filamentEnd ? attachment[i] : 0;
-        squashed[j] = source[j] + (source[j] - pivotX) * horizontal * weight;
-        squashed[j + 1] = source[j + 1]
-          + ((source[j + 1] - pivotY) * vertical + cheekLift[i] * lift) * weight;
-        squashed[j + 2] = source[j + 2];
+        squashed[j] = localSource[j] + (localSource[j] - pivotX) * horizontal * weight;
+        squashed[j + 1] = localSource[j + 1]
+          + ((localSource[j + 1] - pivotY) * vertical + cheekLift[i] * lift) * weight;
+        squashed[j + 2] = localSource[j + 2];
       }
       localSource = squashed;
     }
@@ -723,9 +729,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
     return point;
   }
 
-  return { update, updateGesture, apply, transformPoint, diagnostics,
+  return { update, updateGesture, updateForm: form.update, apply, transformPoint, diagnostics,
     setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
     applyTuning(tuning) {
+    if (Number.isFinite(tuning.formAmount)) form.setAmount(tuning.formAmount);
     if (Number.isFinite(tuning.gestureAmount)) gestureAmount = clamp(tuning.gestureAmount, 0, 2);
     if (Number.isFinite(tuning.accentAmount)) accentAmount = clamp(tuning.accentAmount, 0, 2);
     if (tuning.cueMap) accentCueMap = tuning.cueMap;

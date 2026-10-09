@@ -73,6 +73,8 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 - `spike/agent.html`: live-agent test bench. It connects to the ElevenLabs agent (paste the agent ID each run; it is never stored) and logs timing, text and output volume. Downloaded logs contain your own speech, so never commit them.
 
+- `movement.html`: local movement comparison with a **Fluid shape** switch. Neutral shows a flowing silhouette; **Simulate your turn** demonstrates attention gathering for nine seconds and then relaxing. Cached speech and expression controls reuse the actual face driver, with no live service or microphone. Switch off Fluid shape to compare the approved conversation-motion baseline.
+
 ## Code organisation and checks
 
 `js/landing.js` wires the landing page to the existing renderer and voice player;
@@ -95,6 +97,12 @@ brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
 Ordinary speech uses restrained, voice-beat-driven stretch/rebound accents, with
 at least 2.6 seconds between starts. Laugh/chuckle gestures keep their separate
 compression and timing.
+
+Neutral and listening moments now have a display-only silhouette flow: the outer
+form changes width, length and asymmetry while the eyes, nose and lips stay
+protected. Sustained listening attention gathers the form and calms its flow.
+The layer fades during whole replies (including buffering gaps), manual pose
+previews and expression release. Reduced motion suppresses it completely.
 
 Live listening reads only the pinned SDK's existing input-volume analyser. After
 sustained input, Seni gently centres her attention and makes one small nod;
