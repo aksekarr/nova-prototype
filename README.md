@@ -11,7 +11,7 @@ Serve the static files with `python3 -m http.server 4173`, then open `http://loc
 The main page is the voice landing experience, with **Meet Seni**, sound,
 replay and return controls. After the introduction, **Surprise me** cycles
 **Seni → Jellyfish → Atom → Lotus → Seni**. The jellyfish gathers into the centre
-before a brief electric release unfolds the atom's rings. The atom spirals inward into a closed lotus bud,
+before the atom's rings unfold. The atom spirals inward into a closed lotus bud,
 pauses, then blooms into layered petals. **Back to Seni** returns silently to
 her face, including during a transition. It never asks for microphone access,
 and speech text is not displayed. Chat is reserved for a later build.
