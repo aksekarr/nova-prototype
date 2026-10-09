@@ -25,7 +25,7 @@ class Handler(old.Handler):
         if path.startswith(('refs/live/', 'baseline/')):
             return self.send_error(404)
         if path in old.HOOKED:
-            data = instrument(path, (old.ROOT / path).read_text())
+            data = instrument(path, old.source_bytes(path).decode())
             return self.data(data.encode(), self.guess_type(path))
         return super().do_GET()
 

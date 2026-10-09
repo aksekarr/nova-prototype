@@ -1,65 +1,65 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Nova</title>
-<link rel="stylesheet" href="./css/nova.css">
-<script type="importmap">
-{
-  "imports": {
-    "three": "./js/vendor/three.module.js",
-    "three/addons/": "./js/vendor/addons/"
-  }
-}
-</script>
-<script type="module" src="./js/main.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#04060c">
+  <meta name="description" content="Meet Seni, a voice and a cloud of light.">
+  <title>Seni · A presence in the light</title>
+  <link rel="stylesheet" href="./css/landing.css">
+  <script type="importmap">
+    { "imports": { "three": "./js/vendor/three.module.js", "three/addons/": "./js/vendor/addons/" } }
+  </script>
+  <script type="module" src="./js/landing.js"></script>
 </head>
-<body>
-
-<canvas id="stage" aria-label="Nova, a cloud of light particles"></canvas>
-
-<header class="hud">
-  <p class="mark">NOVA<small>Form study 01</small></p>
-  <dl class="readout">
-    <div><dt>State</dt><dd id="r-state" class="live">Nebula</dd></div>
-    <div><dt>Expression</dt><dd id="r-expr">Neutral</dd></div>
-    <div><dt>Voice</dt><dd id="r-voice">Loading</dd></div>
-    <div><dt>Particles</dt><dd id="r-n">0</dd></div>
-  </dl>
-</header>
-
-<section class="bottom">
-  <p class="caption rest" id="caption" aria-live="polite">At rest. Press Wake Nova to watch it form, speak and change shape.</p>
-  <div class="dock">
-    <button id="wake" class="primary" disabled>Wake Nova</button>
-    <div class="group" role="group" aria-label="Shape">
-      <span>Shape</span>
-      <div class="row">
-        <button data-mode="nebula" aria-pressed="true">Nebula</button>
-        <button data-mode="face" aria-pressed="false">Face</button>
-        <button data-mode="tree" aria-pressed="false">Tree</button>
-      </div>
+<body data-phase="booting">
+  <canvas id="stage" aria-label="A living nebula of light, becoming Seni's face"></canvas>
+  <header class="masthead">
+    <div class="wordmark" aria-label="Seni">
+      <svg class="brand-symbol" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2C16 12 12 16 2 16c10 0 14 4 14 14 0-10 4-14 14-14C20 16 16 12 16 2Z"/><circle cx="16" cy="16" r="12"/></svg>
+      <span>SENI</span>
     </div>
-    <div class="group" role="group" aria-label="Expression">
-      <span>Expression</span>
-      <div class="row">
-        <button data-expr="neutral" aria-pressed="true">Neutral</button>
-        <button data-expr="warm" aria-pressed="false">Warm</button>
-        <button data-expr="curious" aria-pressed="false">Curious</button>
-        <button data-expr="thinking" aria-pressed="false">Thinking</button>
-      </div>
+    <div class="mode-switch" role="group" aria-label="Conversation mode">
+      <button class="mode-option" type="button" disabled aria-pressed="false" title="Chat is coming soon">Chat <span class="soon">Soon</span></button>
+      <button class="mode-option is-selected" type="button" aria-pressed="true" aria-label="Voice mode">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8v4m4-7v10m4-12v14m4-9v4"/></svg>Voice
+      </button>
     </div>
-    <div class="group" role="group" aria-label="Voice">
-      <span>Voice</span>
-      <div class="row">
-        <button id="line" disabled>Test line</button>
-        <button id="sound" aria-pressed="true">Sound on</button>
-      </div>
+    <p class="preview-label"><span aria-hidden="true"></span>Voice preview</p>
+  </header>
+  <main class="experience" aria-label="Meet Seni">
+    <h1 class="sr-only">Meet Seni</h1>
+    <div class="arrival" id="arrival">
+      <button class="meet-button" id="meet" type="button" disabled>
+        <span id="meet-label">Meet Seni</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg>
+      </button>
+      <p class="entry-hint" id="entry-hint">Preparing Seni…</p>
+      <p class="entry-error" id="entry-error" role="alert" hidden></p>
     </div>
-  </div>
-  <p class="note">Prototype. Voice: ElevenLabs (Luna). No live AI connected.</p>
-</section>
-
+  </main>
+  <footer class="experience-footer">
+    <div class="presence" id="presence" hidden>
+      <span class="presence-line" aria-hidden="true"></span>
+      <p id="presence-title">Seni is here</p>
+      <p class="presence-note" id="presence-note">Live conversation is coming soon</p>
+    </div>
+    <div class="voice-controls" role="group" aria-label="Voice controls">
+      <button class="quiet-button" id="return" type="button" aria-label="Return to nebula" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5 2 10l5 5M3 10h9a5 5 0 0 0 0-10" transform="translate(0 3) scale(.85)"/></svg>
+        <span class="control-full">Return to nebula</span><span class="control-short" aria-hidden="true">Return</span>
+      </button>
+      <button class="quiet-button" id="replay" type="button" aria-label="Replay introduction" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7a6 6 0 1 1 0 6M4 3v4h4"/></svg>
+        <span class="control-full">Replay introduction</span><span class="control-short" aria-hidden="true">Replay</span>
+      </button>
+      <button class="quiet-button sound-button" id="sound" type="button" aria-pressed="false" aria-label="Mute sound" disabled>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 4-4 4H1v4h3l4 4V4Z"/><g class="sound-waves"><path d="M11 7a5 5 0 0 1 0 6m3-9a9 9 0 0 1 0 12"/></g><path class="sound-cross" d="m12 7 6 6m0-6-6 6"/></svg>
+        <span id="sound-label">Sound on</span>
+      </button>
+    </div>
+    <p class="sr-only" id="status" role="status" aria-live="polite">Preparing Seni.</p>
+  </footer>
+  <noscript><p class="no-script">Seni needs JavaScript to bring her particles to life.</p></noscript>
 </body>
 </html>

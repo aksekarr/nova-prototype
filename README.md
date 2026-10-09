@@ -1,10 +1,20 @@
-# Nova (project codename): Syra
+# Seni
 
-A live voice character with a face made of light. Syra is an AI found in a dead network. You talk to her, she answers live, and her face (tens of thousands of particles sampled from an image) speaks with her.
+A particle-based character with a voice landing page. Meet Seni forms her face,
+plays the existing name-free introduction, then settles into her idle presence.
+This version uses cached audio only; chat and live conversation come later.
 
 ## Run
 
 Serve the static files with `python3 -m http.server 4173`, then open `http://localhost:4173/` in Safari.
+
+The main page is the voice landing experience, with **Meet Seni**, sound,
+replay and return controls. It never asks for microphone access, and speech text
+is not displayed. Chat is visibly reserved for a later build.
+
+The previous form-study page is preserved at `study.html`. Existing `?tune=1`
+and `?live=1` links redirect there, retaining their parameters. Preview pages
+and their particle defaults remain unchanged.
 
 URL options:
 
@@ -25,7 +35,9 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 ## Code organisation and checks
 
-`js/main.js` wires the page, face and renderer together. The existing cached demo
+`js/landing.js` wires the landing page to the existing renderer and voice player;
+`js/landing-flow.js` owns its cancellable entry/replay lifecycle.
+`js/main.js` wires the separate study page, face and renderer together. The existing cached demo
 and speech-lab interactions live in `js/study-flow.js`; `js/live.js` is loaded only
 with `?live=1`. Pure pose and expression controllers live in
 `js/face-expressions.js`, with their existing exports also available from

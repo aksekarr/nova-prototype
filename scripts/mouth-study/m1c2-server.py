@@ -15,7 +15,7 @@ BASELINE = '98bc3ee'
 STATUS = {}
 LOCK = threading.Lock()
 PRIVATE_CAPTURE = 'refs/live/nova-captures-2026-10-08T21-18-43-294Z.json'
-HOOKED = {'index.html', 'js/main.js', 'js/face.js', 'js/facewarp.js', 'js/stage.js', 'js/tuning.js', 'js/voice.js'}
+HOOKED = {'index.html', 'study.html', 'js/main.js', 'js/face.js', 'js/facewarp.js', 'js/stage.js', 'js/tuning.js', 'js/voice.js'}
 
 def replace(source, old, new):
     if source.count(old) != 1:
@@ -25,6 +25,13 @@ def replace(source, old, new):
 @lru_cache(None)
 def baseline(path):
     return subprocess.check_output(['git', '--no-optional-locks', 'show', BASELINE + ':' + path], cwd=ROOT)
+
+def source_bytes(path, old=False):
+    # QA keeps its study entry at / and /index.html. The product landing page
+    # has different controls; the historical study entry predates study.html.
+    if path in ('index.html', 'study.html'):
+        return baseline('index.html') if old else (ROOT / 'study.html').read_bytes()
+    return baseline(path) if old and path.startswith('js/') else (ROOT / path).read_bytes()
 
 def fingerprints(old):
     if old:
@@ -36,7 +43,7 @@ def fingerprints(old):
             for p in sorted((ROOT / 'js').rglob('*.js'))}
 
 def instrument(path, source, old=False):
-    if path == 'index.html':
+    if path in ('index.html', 'study.html'):
         init = {'seed': 0x72acf91, 'initialSeed': 0x72acf91, 'frame': 0, 'errors': [], 'warnings': [],
                 'baseline': BASELINE, 'version': 'baseline' if old else 'current', 'sourceHashes': fingerprints(old),
                 'shadowEnabled': False, 'comparePixels': False, 'timing': {}, 'visibilityChanges': 0}
@@ -148,7 +155,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_error(404)
             if path.startswith('refs/live/') and path != PRIVATE_CAPTURE:
                 return self.send_error(404)
-            data = baseline(path) if old and path.startswith('js/') else target.read_bytes()
+            data = source_bytes(path, old)
             if path in HOOKED:
                 data = instrument(path, data.decode(), old).encode()
             return self.data(data, self.guess_type(path))

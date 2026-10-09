@@ -19,8 +19,14 @@ results = []
 for harness, old in [('m1c2', False), ('m1c2', True), ('m1c3', False)]:
     entry = {'harness': harness, 'old': old, 'paths': [], 'mainBinding': None}
     for path in sorted(m2.HOOKED):
-        source = m2.baseline(path).decode() if old and path.startswith('js/') else (root / path).read_text()
+        source = m2.source_bytes(path, old).decode()
         output = m2.instrument(path, source, old) if harness == 'm1c2' else m3.instrument(path, source)
+        if path.endswith('.html'):
+            expected = m2.baseline('index.html') if old else (root / 'study.html').read_bytes()
+            assert source.encode() == expected
+            assert 'src="./js/main.js"' in output and 'src="./js/landing.js"' not in output
+            assert 'id="wake"' in output and 'id="r-voice"' in output
+            assert output.count('window.__qa=') == 1
         scripts = [output] if path.endswith('.js') else re.findall(r'<script>(.*?)</script>', output, re.S)
         for script in scripts:
             checked = subprocess.run([sys.argv[1], '--input-type=module', '--check'], input=script,
@@ -41,6 +47,24 @@ for harness, old in [('m1c2', False), ('m1c2', True), ('m1c3', False)]:
             assert frame.count('qa.onRender?.(') == 1
             assert frame.count('if(qa.frozen){camera.position.x=0;') == 1
     results.append(entry)
+# Exercise actual request routing without opening a socket or reading captures.
+for module, requests in [(m2, [('/', False), ('/index.html?tune=1', False),
+                               ('/study.html?tune=1', False), ('/baseline/', True),
+                               ('/baseline/index.html?tune=1', True), ('/baseline/study.html', True)]),
+                         (m3, [('/', False), ('/index.html?tune=1', False), ('/study.html', False)])]:
+    for request, historical in requests:
+        served = []
+        handler = module.Handler.__new__(module.Handler)
+        handler.path = request
+        handler.data = lambda data, mime: served.append((data, mime))
+        handler.send_error = lambda code: (_ for _ in ()).throw(AssertionError('HTTP ' + str(code)))
+        handler.do_GET()
+        assert len(served) == 1, request
+        html, mime = served[0]
+        assert mime == 'text/html', request
+        assert b'src="./js/main.js"' in html and b'id="wake"' in html, request
+        assert b'src="./js/landing.js"' not in html, request
+        assert ('"version": "' + ('baseline' if historical else 'current') + '"').encode() in html
 print(json.dumps(results))
 `, process.execPath], {
   cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8', maxBuffer: 1024 * 1024
