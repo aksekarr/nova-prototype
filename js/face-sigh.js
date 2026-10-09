@@ -1,8 +1,8 @@
 // One playback-timed gather / outward release / reform. Shares the existing
 // gesture field and handover; it never owns another clock or particle buffer.
-export const SIGH_GESTURE = Object.freeze({ gather: .18, hold: .06, release: .28,
-  settle: .4, amount: .075, tighten: .7, widen: .95,
-  coreDelay: .025, edgeDelay: .14, edgeOvershoot: .3 });
+export const SIGH_GESTURE = Object.freeze({ gather: .22, hold: .06, release: .34,
+  settle: .44, amount: .075, tighten: .7, widen: .95,
+  coreDelay: .025, edgeDelay: .14, edgeOvershoot: .24 });
 const ramp = (age, duration) => {
   const t = duration > 0 ? Math.max(0, Math.min(1, age / duration)) : Number(age >= 0);
   return t * t * t * (t * (t * 6 - 15) + 10);

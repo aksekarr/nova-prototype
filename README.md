@@ -103,7 +103,8 @@ brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
 of delighted surprise. **Warmly** has gentler eyes and a softer smile than the
 cheerful content pose. **Sighs** uses a lightly exasperated, relaxed expression
 with a quick gather → widen → reform gesture; the outward release is stronger
-than the initial gathering, and the edge particles trail it slightly. It plays
+than the initial gathering, and the edge particles trail it slightly. Rounded
+arrival and release timing, with a softer edge rebound, keep it elastic. It plays
 once per aligned occurrence, shares the existing gesture handover and suppresses
 ordinary accents while active. Reduced motion keeps the expression and omits
 the new sigh gesture. Existing laugh/chuckle geometry and timing are unchanged.
