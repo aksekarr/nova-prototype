@@ -60,6 +60,7 @@ export function createCueExpressions() {
   let replyId = null, lastPosition = 0, lastCues = [], release = null, bridge = null;
   const retired = new Set();
   const knownEnds = new Map();
+  const moodHistory = new Map();
   const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
   const seconds = (key, fallback) => Number.isFinite(timing[key]) ? Math.max(0, timing[key]) : fallback;
   const phase = (age, duration) => duration > 0 ? smooth(age / duration) : Number(age >= 0);
@@ -77,7 +78,7 @@ export function createCueExpressions() {
     return result;
   };
   let output = blank(), channels = { mood: blank(), event: blank(), question: blank() };
-  let eventRemaining = 0, questionRemaining = 0;
+  let moodRemaining = 0, eventRemaining = 0, questionRemaining = 0;
   let blockingEvent = false;
   let gestureWindows = [];
   const mapCue = cue => cue.type === 'question' ? null : cueMap[cue.name];
@@ -87,29 +88,51 @@ export function createCueExpressions() {
     blockingEvent = false;
     gestureWindows = [];
     const mood = blank(), event = blank(), question = blank();
-    const moods = cues.filter(cue => valid(mapCue(cue)) && mapCue(cue).kind === 'mood')
-      .sort((a, b) => a.start - b.start);
-    let source = blank(), destination = blank(), moodStart = 0;
-    const moodAttack = seconds('moodAttack', 0.5);
+    const attack = seconds('moodAttack', 0.5), hold = seconds('moodHold', 0.7);
+    const recovery = seconds('moodRelease', 1);
+    cues.forEach((cue, index) => {
+      const mapping = mapCue(cue);
+      if (!valid(mapping) || mapping.kind !== 'mood' || !Number.isFinite(cue.start)) return;
+      const id = cue.id ?? `${cue.type || 'tag'}:${index}`;
+      const previous = moodHistory.get(id);
+      // Retire against the last known end before accepting a correction.
+      // Keep its old timing as history: a later overlapping beat may still
+      // be blending from the value it had when that later beat began.
+      if (previous && position >= previous.until) retired.add(id);
+      if (retired.has(id) || (cue.start > position && !previous)) return;
+      moodHistory.set(id, { id, start: cue.start, attack, hold, recovery,
+        until: cue.start + attack + hold + recovery,
+        pose: mapping.pose, amount: Math.max(0, mapping.amount) * moodAmount });
+    });
+    const moods = [...moodHistory.values()].sort((a, b) => a.start - b.start);
+    let source = blank(), destination = blank(), activeMood = null;
+    const moodAt = at => {
+      if (!activeMood) return blank();
+      const age = at - activeMood.start;
+      const formed = mix(source, destination, phase(age, activeMood.attack));
+      return mix(formed, blank(), phase(age - activeMood.attack - activeMood.hold, activeMood.recovery));
+    };
     for (const cue of moods) {
       if (cue.start > position) break;
-      source = mix(source, destination, phase(cue.start - moodStart, moodAttack));
+      // New tags start from the already-decaying pose, never its old peak.
+      source = moodAt(cue.start);
       destination = blank();
-      const mapping = mapCue(cue);
-      destination.weights[mapping.pose] = Math.max(0, mapping.amount) * moodAmount;
-      moodStart = cue.start;
+      destination.weights[cue.pose] = cue.amount;
+      activeMood = cue;
+      if (position >= cue.until) retired.add(cue.id);
     }
-    Object.assign(mood.weights, mix(source, destination, phase(position - moodStart, moodAttack)).weights);
-    // Moods dim the micro layer by only part of their strength, so sustained
-    // poses keep some life; laughs, chuckles and sighs still suppress it fully.
+    Object.assign(mood.weights, moodAt(position).weights);
+    moodRemaining = activeMood ? Math.min(activeMood.recovery, Math.max(0, activeMood.until - position)) : 0;
+    // Moods dim the micro layer only while their finite beat is visible.
+    // Laughs, chuckles and sighs still suppress it fully.
     const moodMicro = Number.isFinite(timing.moodMicroSuppression) ? clamp(timing.moodMicroSuppression, 0, 1) : 1;
     mood.microSuppression = clamp(Object.values(mood.weights).reduce((sum, weight) => sum + weight, 0) * moodMicro, 0, 1);
     // Only thinking may steer the eyes, and only during its first brief glance.
     for (const cue of moods) {
-      const mapping = mapCue(cue), age = position - cue.start;
+      const age = position - cue.start;
       const duration = seconds('thinkingGaze', 0.8);
       const recovery = Math.min(duration, seconds('thinkingGazeRelease', 0.3));
-      if (mapping.pose === 'thinking' && age >= 0 && age < duration) {
+      if (cue.pose === 'thinking' && age >= 0 && age < duration) {
         mood.gazeWeights.thinking = (mood.weights.thinking || 0)
           * (1 - phase(age - (duration - recovery), recovery));
       }
@@ -197,8 +220,11 @@ export function createCueExpressions() {
     // currently on screen and finish their releases on the animation clock.
     const interrupted = end?.reason === 'interrupted';
     const interrupt = seconds('interruptRelease', 0.4);
+    // Replies with no started mood retain their original neutral-settling
+    // delay. A bridge from an earlier reply does not change that classification.
+    const moodDuration = moodHistory.size ? moodRemaining : seconds('moodRelease', 1);
     release = { age: 0, parts: channels, durations: {
-      mood: interrupted ? interrupt : seconds('moodRelease', 1),
+      mood: interrupted ? interrupt : moodDuration,
       event: interrupted ? interrupt : eventRemaining,
       question: interrupted ? interrupt : questionRemaining
     } };
@@ -213,10 +239,11 @@ export function createCueExpressions() {
       // The outgoing state participates directly in the new reply's attack;
       // neither the targets nor their spring velocities pass through a reset.
       bridge = Object.values(output.weights).some(Boolean) || output.questionPitch
-        ? { parts: channels, age: 0, eventRemaining, questionRemaining } : null;
+        ? { parts: channels, age: 0, moodRemaining, eventRemaining, questionRemaining } : null;
       release = null;
       retired.clear();
       knownEnds.clear();
+      moodHistory.clear();
       replyId = cues.replyId;
     } else if (!cues && replyId !== null) {
       beginRelease(ended?.replyId === replyId ? ended : null);
@@ -234,6 +261,7 @@ export function createCueExpressions() {
         // Preserve each channel's own recovery if even a very short new reply
         // ends during the handover; questions never inherit the mood release.
         if (blend < 1) {
+          moodRemaining = Math.max(moodRemaining, bridge.moodRemaining);
           eventRemaining = Math.max(eventRemaining, bridge.eventRemaining);
           questionRemaining = Math.max(questionRemaining, bridge.questionRemaining);
         }
@@ -249,6 +277,7 @@ export function createCueExpressions() {
         if (blend < 1) done = false;
       }
       channels = parts;
+      moodRemaining = Math.max(0, release.durations.mood - release.age);
       eventRemaining = Math.max(0, release.durations.event - release.age);
       questionRemaining = Math.max(0, release.durations.question - release.age);
       output = combine(channels);
@@ -264,7 +293,8 @@ export function createCueExpressions() {
     if (Number.isFinite(tuning.moodAmount)) moodAmount = clamp(tuning.moodAmount, 0, 2);
   }, reset() {
     replyId = null; lastPosition = 0; lastCues = []; release = bridge = null;
-    retired.clear(); knownEnds.clear(); output = blank();
+    retired.clear(); knownEnds.clear(); moodHistory.clear(); output = blank();
+    moodRemaining = 0;
     channels = { mood: blank(), event: blank(), question: blank() };
   }, get state() { return { replyId, position: lastPosition, output, retired: [...retired], releasing: Boolean(release), blockingEvent, gestureWindows }; } };
 }
