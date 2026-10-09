@@ -530,6 +530,13 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     // Only a resting field can start an accent. Laughter reuses startGesture's
     // existing handover from the displayed field, never a second deformation.
     const settings = { ...accentSettings };
+    if (speechFlowAmount > 0) {
+      // Round the travelling accent's arrival and return without changing its
+      // direction, peak size, beat trigger or the separate laugh choreography.
+      settings.attack += .04;
+      settings.release += .06;
+      settings.overshoot *= .75;
+    }
     setGestureDelays(settings);
     speechFlow.start(accentState.starts, speechFlowAmount, gestureDelay);
     const extraDelay = speechFlowAmount > 0 ? .24 : 0;

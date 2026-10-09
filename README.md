@@ -98,7 +98,8 @@ Ordinary speech uses restrained, voice-beat-driven stretch/rebound accents, with
 at least 2.6 seconds between starts. Laugh/chuckle gestures keep their separate
 compression and timing. Ordinary accents now carry a directional sweep through
 the outer particles, rotating among four directions without adding random draws
-or extra triggers. Their timing follows playback, holds through audio gaps and
+or extra triggers. Travelling accents have a slightly longer rise and return,
+with less rebound, to soften the motion. Their timing follows playback, holds through audio gaps and
 releases continuously on interruption or a laugh handover. Eyes, nose and lips
 retain their original protected deformation. Reduced motion keeps the earlier
 accent field and suppresses the new directional sweep.
