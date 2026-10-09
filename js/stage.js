@@ -38,6 +38,8 @@ const TUNING = {
   socketLift: 0.3,
   eyePose: 'content',
   poseIntensity: 0,
+  eyeStyle: 'auto',
+  eyeMoments: true,
   autoExpressions: true,
   laughAmount: 1,
   gestureAmount: 1,

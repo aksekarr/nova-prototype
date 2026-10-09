@@ -15,7 +15,7 @@ const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
 let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
-let eyeStyle = 'relaxed', eyeMoments = true;
+let eyeStyle = 'auto', eyeMoments = true;
 let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
 const tagExamples = { chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
   confidently: 'confidently', warmly: 'warmly' };

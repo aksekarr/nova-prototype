@@ -148,39 +148,120 @@ function driver(style) {
   Math.random = () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
   try { face = createFace(shapes, false); } finally { Math.random = previousRandom; }
   face.applyTuning({ eyeStyle: style, listening: { pose: 'content', amount: .25 },
-    cueMap: { curious: { kind: 'mood', pose: 'focused', amount: .85 } } });
+    cueMap: {
+      curious: { kind: 'mood', pose: 'focused', amount: .85 },
+      thoughtful: { kind: 'mood', pose: 'thinking', amount: .75 },
+      warmly: { kind: 'mood', pose: 'warm', amount: 1 },
+      confidently: { kind: 'mood', pose: 'confident', amount: 1 },
+      chuckles: { kind: 'chuckle', pose: 'laugh', amount: .75 },
+      laughing: { kind: 'laugh', pose: 'laugh', amount: 1 },
+      sighs: { kind: 'sigh', pose: 'sigh', amount: .8 }
+    } });
   face.setReplyText('Synthetic eye expression regression.');
   return { face, shapes };
 }
 
 test('the real eye layer leaves expression state, articulation, gaze/blinks, head and particle motion identical', () => {
-  const baseline = driver('current'), softer = driver('relaxed');
+  const controls = [driver('current'), driver('relaxed'), driver('auto')];
+  const baseline = controls[0];
   let differentEyes = false;
   const mouth = { w: 1, h: 1, round: 0, close: 0 };
   for (let i = 0; i < 480; i++) {
     const time = i / 60, speaking = time >= 2 && time < 6;
     const cues = speaking ? reply(time - 2) : null;
     const envelope = speaking ? .3 + Math.sin(time * 8) * .15 : 0;
-    for (const { face } of [baseline, softer]) face.update(1 / 60, time, cues, envelope,
+    for (const { face } of controls) face.update(1 / 60, time, cues, envelope,
       mouth, speaking, null, !speaking, null, !speaking ? .18 : 0);
-    assert.deepEqual(softer.face.diagnostics.expression, baseline.face.diagnostics.expression);
-    assert.deepEqual(softer.face.diagnostics.mouth, baseline.face.diagnostics.mouth);
-    assert.deepEqual(softer.face.diagnostics.pose, baseline.face.diagnostics.pose);
-    assert.deepEqual(softer.shapes.FACE, baseline.shapes.FACE);
-    assert.deepEqual(softer.shapes.UV, baseline.shapes.UV);
-    differentEyes ||= softer.face.diagnostics.rendered.lowerLid !== baseline.face.diagnostics.rendered.lowerLid;
+    for (const softer of controls.slice(1)) {
+      assert.deepEqual(softer.face.diagnostics.expression, baseline.face.diagnostics.expression);
+      assert.deepEqual(softer.face.diagnostics.mouth, baseline.face.diagnostics.mouth);
+      assert.deepEqual(softer.face.diagnostics.pose, baseline.face.diagnostics.pose);
+      assert.deepEqual(softer.shapes.FACE, baseline.shapes.FACE);
+      assert.deepEqual(softer.shapes.UV, baseline.shapes.UV);
+      differentEyes ||= softer.face.diagnostics.rendered.lowerLid !== baseline.face.diagnostics.rendered.lowerLid;
+    }
   }
   assert.ok(differentEyes, 'comparison must actually change the displayed eyes');
 });
 
-test('the real Curious peak retains its complete approved expression under a softer foundation', () => {
-  const baseline = driver('current'), softer = driver('attentive');
+test('the real conversation mix and fixed alternatives preserve every approved tag at its peak', () => {
   const mouth = { w: 1, h: 1, round: 0, close: 0 };
-  for (let i = 0; i < 90; i++) {
-    const cues = { ...reply(i / 60), cues: [{ id: 'c1', type: 'tag', name: 'curious', start: 0, end: .1 }] };
-    for (const { face } of [baseline, softer]) face.update(1 / 60, i / 60, cues, 0, mouth);
+  for (const name of ['curious', 'thoughtful', 'warmly', 'confidently', 'chuckles', 'laughing', 'sighs']) {
+    for (const style of ['attentive', 'auto']) {
+      const baseline = driver('current'), softer = driver(style);
+      for (let i = 1; i <= 30; i++) {
+        const cues = { ...reply(i / 60), cues: [{ id: 't1', type: 'tag', name, start: 0, end: .5 }] };
+        for (const { face } of [baseline, softer]) face.update(1 / 60, i / 60, cues, 0, mouth);
+      }
+      assert.equal(softer.face.diagnostics.eyes.weight, 0, name + ' must keep priority');
+      assert.deepEqual(softer.face.diagnostics.rendered, baseline.face.diagnostics.rendered);
+      assert.deepEqual(softer.shapes.FACE_COL, baseline.shapes.FACE_COL);
+    }
   }
-  assert.equal(softer.face.diagnostics.eyes.weight, 0);
-  assert.deepEqual(softer.face.diagnostics.rendered, baseline.face.diagnostics.rendered);
-  assert.deepEqual(softer.shapes.FACE_COL, baseline.shapes.FACE_COL);
+});
+
+test('conversation mix keeps Current eyes between occasional soft neutral moments', () => {
+  const eyes = make('auto');
+  assert.equal(advance(eyes, 3).weight, 0);
+  assert.equal(eyes.state.foundation, 'current');
+  const softened = advance(eyes, 1.5);
+  assert.equal(softened.foundation, 'relaxed');
+  assert.equal(softened.moment, 'soften');
+  assert.ok(softened.weight > .95);
+  assert.ok(Math.abs(softened.pose.lowerLid - EYE_FOUNDATIONS.relaxed.lowerLid) < .001);
+  const home = advance(eyes, 4.5);
+  assert.equal(home.foundation, 'current');
+  assert.equal(home.weight, 0, 'quiet periods must restore the exact original eyes');
+});
+
+test('conversation mix holds Open and attentive for sustained input and eases out in quiet', () => {
+  const eyes = make('auto');
+  const attentive = advance(eyes, 1.5, { listening: 1, attention: 1 });
+  assert.equal(attentive.foundation, 'attentive');
+  assert.equal(attentive.moment, 'attentive');
+  assert.ok(attentive.weight > .99);
+  for (const [key, value] of Object.entries(EYE_FOUNDATIONS.attentive))
+    assert.ok(Math.abs(attentive.pose[key] - value) < .0001);
+  eyes.update(0, { listening: 1, attention: 0 });
+  assert.deepEqual(eyes.state.pose, attentive.pose);
+  assert.equal(eyes.state.weight, attentive.weight);
+  eyes.update(1 / 60, { listening: 1, attention: 0 });
+  assert.ok(eyes.state.weight < attentive.weight && eyes.state.weight > .95);
+});
+
+test('conversation mix uses both approved shapes for spaced speech moments and holds gaps exactly', () => {
+  const eyes = make('auto');
+  advance(eyes, 1, { cues: reply(0) });
+  assert.equal(eyes.state.weight, 0);
+  eyes.update(0, { cues: reply(1), phraseEvents: [start(1)] });
+  for (let i = 1; i <= 60; i++) eyes.update(1 / 60, { cues: reply(1 + i / 60) });
+  assert.equal(eyes.state.foundation, 'attentive');
+  assert.ok(eyes.state.weight > .95);
+  const held = structuredClone(eyes.state);
+  for (let i = 0; i < 90; i++) {
+    eyes.update(1 / 30, { cues: reply(2, 'gap'), phraseEvents: [start(2)] });
+    assert.deepEqual(eyes.state, held);
+  }
+  advance(eyes, 3, { cues: reply(3.2) });
+  assert.equal(eyes.state.foundation, 'current');
+  assert.equal(eyes.state.weight, 0);
+  eyes.update(0, { cues: reply(5), phraseEvents: [start(5)] });
+  for (let i = 1; i <= 60; i++) eyes.update(1 / 60, { cues: reply(5 + i / 60) });
+  assert.equal(eyes.state.foundation, 'relaxed');
+  assert.ok(eyes.state.weight > .95);
+  const visible = structuredClone(eyes.state);
+  eyes.update(0, { cues: reply(0, 'speaking', 2) });
+  assert.deepEqual(eyes.state.pose, visible.pose);
+  assert.equal(eyes.state.weight, visible.weight);
+  advance(eyes, 3, { cues: reply(0, 'speaking', 2) });
+  assert.equal(eyes.state.weight, 0, 'a new reply must not replay the outgoing eye moment');
+});
+
+test('reduced motion and Eye moments off keep Current eyes throughout conversation mix', () => {
+  for (const eyes of [make('auto', true), make('auto', false, false)]) {
+    assert.equal(advance(eyes, 8, { listening: 1, attention: 1 }).weight, 0);
+    eyes.update(0, { cues: reply(1), phraseEvents: [start(1)] });
+    assert.equal(advance(eyes, 2, { cues: reply(2) }).weight, 0);
+    assert.equal(eyes.state.foundation, 'current');
+  }
 });

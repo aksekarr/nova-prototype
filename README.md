@@ -97,15 +97,23 @@ The movement preview also has silent **Sighs**, **Confidently**, **Warmly**,
 tag expressions with their previous mappings; switch it off and replay a tag.
 These are synthetic alignment cues, not generated audio or a live connection.
 
-The eye comparison in `movement.html` offers **Current eyes**, **Soft and settled**
-and **Open and attentive**. **Eye moments** adds coordinated form/hold/release
-shapes, sustained listening engagement and spaced playback-timed phrase accents;
-switch it off to compare the foundations alone. The new eye layer is preview-only
-until a foundation is chosen: normal conversation keeps Current eyes. It blends
-only displayed lids and brows, uses the same aperture/light sampler and leaves
-mouth, gaze, blink, head/body motion and particle buffers unchanged. Strong audio
-tag expressions and manual poses take priority. Audio gaps freeze the layer;
-reduced motion retains the foundation and omits the new automatic eye moments.
+Conversation now uses **Conversation mix** for the eyes. **Current eyes** stays
+as the original foundation between moments. **Soft and settled** appears briefly
+in quiet neutral/listening periods; **Open and attentive** follows sustained
+listening attention. Spaced speech-phrase starts alternate open engagement and
+softening, returning to Current eyes between beats. This uses existing playback
+and input-volume signals, without inferring an emotion from the person's speech.
+The mix changes only displayed lids and brows. Mouth, gaze, blink, head/body
+motion and particle buffers are unchanged; strong tags and manual poses take
+priority. Audio gaps freeze the new layer, and reduced motion retains Current
+eyes without the new automatic moments.
+
+The eye comparison in `movement.html` keeps **Conversation mix**, **Current eyes**,
+**Soft and settled** and **Open and attentive** available separately. Current eyes
+is the exact original version; the two fixed alternatives retain their approved
+foundations and optional coordinated form/hold/release moments. **Eye moments**
+off holds a fixed alternative's foundation, or keeps Current eyes in Conversation
+mix. Reduced motion keeps a fixed alternative's foundation without its moments.
 
 During conversation, **Curious** uses a focused expression with knitted, lowered
 brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
