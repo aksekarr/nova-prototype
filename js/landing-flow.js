@@ -1,19 +1,22 @@
-// The local landing experience owns one cached greeting and the idle forms.
-// Rendering advances every visual wait; no microphone or live provider is used.
+// The landing owns form transitions and either a live session or a cached greeting.
+// Rendering advances visual waits; cancelled work cannot regain the page.
 const NEXT_FORM = { face: 'jelly', jelly: 'orbit', orbit: 'lotus', lotus: 'face' };
 
 export function createLandingFlow({ voice, setMode, getClock, isTransitioning = () => false,
-  setReplyText = () => {}, onChange = () => {}, formationMs = 3000 }) {
+  setReplyText = () => {}, onChange = () => {}, formationMs = 3000, agent = null, agentConfig = null }) {
   const CANCELLED = Symbol('cancelled');
   let active = null, disposed = false, formationTarget = null, frame = 0;
-  let form = 'nebula', hasMet = false;
-  let snapshot = { phase: 'arrival', form, busy: false, speaking: false, error: null };
+  let form = 'nebula', hasMet = false, conversationWanted = false;
+  const live = Boolean(agent && agentConfig?.agentId);
+  const sessionView = () => live ? { live: true, connection: agent.state.status, micMuted: agent.state.micMuted } : {};
+  let snapshot = { phase: 'arrival', form, busy: false, speaking: false, error: null, ...sessionView() };
   let resolveDisposed;
   const disposedPromise = new Promise(resolve => { resolveDisposed = resolve; });
 
   function publish(phase, error = null) {
-    snapshot = { phase, form, error, speaking: phase === 'greeting',
-      busy: phase === 'loading' || phase === 'forming' || phase === 'greeting' || phase === 'changing-form' };
+    snapshot = { phase, form, error, speaking: phase === 'greeting' || phase === 'speaking',
+      busy: phase === 'loading' || phase === 'forming' || phase === 'greeting' || phase === 'changing-form' || phase === 'connecting',
+      ...sessionView() };
     onChange({ ...snapshot });
   }
 
@@ -62,7 +65,81 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
     });
   }
 
-  function start() {
+  function stopAgent() {
+    conversationWanted = false;
+    if (live) agent.stop();
+  }
+
+  function agentChanged() {
+    if (!live || disposed || !conversationWanted || form !== 'face') return;
+    const session = agent.state;
+    if (session.status === 'connecting') publish('connecting');
+    else if (session.status === 'connected') publish(session.speaking ? 'speaking' : 'listening');
+    else {
+      conversationWanted = false;
+      setReplyText(null);
+      publish('present', session.status === 'error' ? session.error || 'The conversation could not connect. Try again.' : null);
+    }
+  }
+
+  function startLive() {
+    if (disposed) return Promise.resolve({ status: 'disposed' });
+    if (active?.kind === 'conversation') return active.done;
+    // Output activation keeps the original click gesture; the microphone starts
+    // only when the formed face is ready for the agent's own greeting.
+    const activated = attempt(() => voice.activate());
+    activated.catch(() => {});
+    cancelActive();
+    stopAgent();
+    voice.stop();
+    setReplyText(null);
+    const token = createToken('conversation');
+    token.done = (async () => {
+      try {
+        const returningFromForm = form !== 'face' && form !== 'nebula';
+        selectForm('face');
+        if (formationTarget === null) formationTarget = getClock() + formationMs / 1000;
+        const forming = getClock() < formationTarget;
+        publish(returningFromForm ? 'changing-form' : forming ? 'forming' : 'loading');
+        await Promise.all([token.current(activated), token.current(waitForVisual(token, formationTarget, returningFromForm))]);
+        if (!token.owns()) throw CANCELLED;
+        hasMet = true;
+        conversationWanted = true;
+        publish('connecting');
+        const result = await token.current(attempt(() => agent.start(agentConfig)));
+        if (result?.status === 'unavailable') {
+          const message = agent.state.error || 'The conversation could not connect. Try again.';
+          stopAgent();
+          publish('present', message);
+          return { status: 'unavailable' };
+        }
+        if (result?.status === 'stopped') {
+          stopAgent();
+          publish('present');
+          return { status: 'stopped' };
+        }
+        agentChanged();
+        return { status: 'connected' };
+      } catch (error) {
+        if (error === CANCELLED || !token.owns()) return { status: 'stopped' };
+        stopAgent();
+        voice.stop();
+        const message = error?.code === 'AUDIO_UNAVAILABLE' ? 'Audio could not start. Try again.'
+          : error?.code === 'FORM_UNAVAILABLE' ? 'Seni could not form. Try again.'
+            : 'The conversation could not connect. Try again.';
+        if (hasMet && isTransitioning()) {
+          publish('changing-form', message);
+          try { await token.current(waitForVisual(token, getClock(), true)); }
+          catch { return { status: 'stopped' }; }
+        }
+        publish(hasMet ? 'present' : 'error', message);
+        return { status: 'unavailable' };
+      } finally { finishToken(token); }
+    })();
+    return token.done;
+  }
+
+  function startCached() {
     if (disposed) return Promise.resolve({ status: 'disposed' });
     if (active?.kind === 'greeting') return active.done;
 
@@ -127,9 +204,16 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
   }
 
   function changeForm(mode) {
+    const endingConversation = conversationWanted;
+    if (endingConversation) {
+      cancelActive();
+      stopAgent();
+      voice.stop();
+      setReplyText(null);
+    }
     try { selectForm(mode); }
     catch {
-      publish(snapshot.phase, 'That form could not appear. Please try again.');
+      publish(endingConversation ? 'present' : snapshot.phase, 'That form could not appear. Please try again.');
       return Promise.resolve({ status: 'unavailable' });
     }
     cancelActive();
@@ -156,6 +240,7 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
   function returnToNebula() {
     if (disposed) return;
     cancelActive();
+    stopAgent();
     voice.stop();
     setReplyText(null);
     try { selectForm('nebula'); }
@@ -174,15 +259,29 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
     // A failed warmup stays silent and never disables the entry/retry control.
     prepare() {
       if (disposed) return Promise.resolve({ status: 'disposed' });
-      const warmup = attempt(() => voice.preload(['intro'], { background: true }))
-        .then(() => ({ status: 'prepared' }), () => ({ status: 'unavailable' }));
+      const warmup = attempt(() => live ? agent.prepare() : voice.preload(['intro'], { background: true }))
+        .then(result => ({ status: result?.status === 'unavailable' ? 'unavailable' : 'prepared' }), () => ({ status: 'unavailable' }));
       return Promise.race([warmup, disposedPromise]);
     },
-    meet: start,
-    repeatGreeting: start,
+    meet: live ? startLive : startCached,
+    repeatGreeting: live ? startLive : startCached,
+    agentChanged,
+    endConversation() {
+      if (disposed || !live) return;
+      cancelActive();
+      stopAgent();
+      voice.stop();
+      setReplyText(null);
+      if (form === 'face') publish('present');
+    },
+    setMicMuted(muted) {
+      if (disposed || !live || !conversationWanted) return;
+      agent.setMicMuted(Boolean(muted));
+      agentChanged();
+    },
     surprise() {
       if (disposed) return Promise.resolve({ status: 'disposed' });
-      if (snapshot.phase !== 'present') return Promise.resolve({ status: 'ignored' });
+      if (!['present', 'connecting', 'listening', 'speaking'].includes(snapshot.phase)) return Promise.resolve({ status: 'ignored' });
       return changeForm(NEXT_FORM[form]);
     },
     showFace() {
@@ -204,9 +303,10 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
       if (disposed) return;
       disposed = true;
       cancelActive();
+      stopAgent();
       voice.stop();
       setReplyText(null);
-      snapshot = { phase: 'arrival', form: 'nebula', busy: false, speaking: false, error: null };
+      snapshot = { phase: 'arrival', form: 'nebula', busy: false, speaking: false, error: null, ...sessionView() };
       resolveDisposed({ status: 'disposed' });
     }
   };

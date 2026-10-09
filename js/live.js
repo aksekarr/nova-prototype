@@ -1,3 +1,5 @@
+import { guardElevenSetup } from './eleven-setup.js';
+
 // Development-only integration for the locally vendored ElevenLabs 1.27.0 SDK.
 // Imported only by the explicit ?live=1 route; the ordinary study stays local.
 export function createLiveStudy({ voice, face, state, el, setMode, setExpr, restCaption,
@@ -129,82 +131,6 @@ export function createLiveStudy({ voice, face, state, el, setMode, setExpr, rest
     updateLiveControls();
   }
 
-  // Pinned 1.27.0 integration. setupWebSocketIO attaches output before creating the
-  // conversation; defer addListener's queued-audio flush until output is muted.
-  // Also retain the SDK's otherwise unabortable setup resources for Stop/deadline.
-  function guardLiveSetup(session, client) {
-    const getUserMedia = media.getUserMedia;
-    const createConnection = client.WebSocketConnection.create;
-    const guardedMedia = async function (constraints) {
-      session.guardedCalls++;
-      try {
-        if (session.stopped) throw new DOMException('Live stopped', 'AbortError');
-        const stream = await getUserMedia.call(media, constraints);
-        session.streams.add(stream);
-        if (session.stopped) {
-          stream.getTracks().forEach(track => track.stop());
-          throw new DOMException('Live stopped', 'AbortError');
-        }
-        return stream;
-      } finally { session.guardedCalls--; }
-    };
-    const guardedConnection = async function (config) {
-      session.guardedCalls++;
-      try {
-        if (session.stopped) throw new DOMException('Live stopped', 'AbortError');
-        const NativeSocket = host.WebSocket;
-        let pending;
-        // create() constructs its socket synchronously, before its first await.
-        host.WebSocket = new Proxy(NativeSocket, {
-          construct(Target, args) {
-            session.socket = new Target(...args);
-            return session.socket;
-          }
-        });
-        try { pending = createConnection.call(this, config); }
-        finally { host.WebSocket = NativeSocket; }
-        const connection = await pending;
-        if (session.stopped || connection.outputFormat.format !== 'pcm' || connection.outputFormat.sampleRate !== 44100) {
-          connection.close();
-          throw new Error('Live requires PCM 44100');
-        }
-        const addListener = connection.addListener.bind(connection);
-        const removeListener = connection.removeListener.bind(connection);
-        const listeners = new Set();
-        connection.addListener = listener => listeners.add(listener);
-        connection.removeListener = listener => {
-          listeners.delete(listener);
-          removeListener(listener);
-        };
-        session.releaseOutput = () => {
-          connection.addListener = addListener;
-          listeners.forEach(addListener);
-          listeners.clear();
-        };
-        // WebSocketConnection.handleMessage otherwise sends even stale PCM to its
-        // output queue. Keep its silent playback clock consistent with Nova's.
-        const handleMessage = connection.handleMessage.bind(connection);
-        connection.handleMessage = event => {
-          if (session.stopped) return;
-          if (event.type === 'interruption') {
-            session.cutoff = Math.max(session.cutoff, event.interruption_event.event_id);
-            connection.pendingAudioEvents = [];
-          }
-          if (event.type === 'audio' && event.audio_event.event_id < session.cutoff) return;
-          handleMessage(event);
-        };
-        return connection;
-      } finally { session.guardedCalls--; }
-    };
-    media.getUserMedia = guardedMedia;
-    client.WebSocketConnection.create = guardedConnection;
-    return () => {
-      // A stopped setup may settle after a new one has acquired these hooks.
-      if (media.getUserMedia === guardedMedia) media.getUserMedia = getUserMedia;
-      if (client.WebSocketConnection.create === guardedConnection) client.WebSocketConnection.create = createConnection;
-    };
-  }
-
   async function startLive() {
     if (liveSession || pendingSetup) return;
     let agentId = liveControls.input.value.trim();
@@ -243,7 +169,7 @@ export function createLiveStudy({ voice, face, state, el, setMode, setExpr, rest
       const client = await (clientLoader ? clientLoader() : loadLiveClient());
       if (!active()) return;
       if (!media?.getUserMedia) throw new Error('Microphone unavailable');
-      restoreSetup = guardLiveSetup(session, client);
+      restoreSetup = guardElevenSetup(session, client, { host, media });
       session.restoreSetup = restoreSetup;
       const pending = client.Conversation.startSession({
         agentId, connectionType: 'websocket', useWakeLock: false,

@@ -1,20 +1,49 @@
 # Seni
 
-A particle-based character with a voice landing page. Meet Seni forms her face,
-plays the existing name-free introduction, then settles into her idle presence.
-This version uses cached audio only; chat and live conversation come later.
+A particle-based character with a voice landing page. Meet Seni forms her face
+and opens a voice conversation when an ElevenLabs agent is configured. Without
+runtime configuration, the page keeps the existing name-free cached introduction.
+Speech text is never displayed. Chat remains reserved for a later build.
 
 ## Run
 
-Serve the static files with `python3 -m http.server 4173`, then open `http://localhost:4173/` in Safari.
+Run `python3 scripts/serve.py`, then open `http://127.0.0.1:4173/` in Safari.
+The server binds to the local computer and defaults to port 4173. A plain static
+server still works for the cached introduction and visual studies.
 
-The main page is the voice landing experience, with **Meet Seni**, sound,
-replay and return controls. After the introduction, **Surprise me** cycles
-**Seni → Jellyfish → Atom → Lotus → Seni**. The jellyfish gathers into the centre
+To connect the landing page to the agent, create a JSON file **outside this
+repository** with only an `agentId` field, then pass its absolute path:
+
+```sh
+python3 scripts/serve.py --agent-config /absolute/path/outside-repository/seni-agent.json
+```
+
+Alternatively, set `SENI_AGENT_ID` in the server process environment. The
+environment takes precedence over the external file. Neither approach needs an
+ElevenLabs API key. Never put the agent ID in this repository, including ignored
+files, source code or documentation. The preview server reads the value at
+startup and serves only that public identifier through `/api/agent-config` with
+`Cache-Control: no-store`; restart the server after changing configuration.
+The external JSON file itself is not served.
+
+In the ElevenLabs agent settings, use **PCM 44,100 Hz** output and enable the
+`audio` event with character alignment, `agent_response`, `interruption`, and
+**`agent_response_complete`** in the client events. The completion event is
+required to distinguish a finished reply from a temporary audio gap. Agent
+authentication, if enabled, needs a future signed-session endpoint; do not add
+an API key to this static application.
+
+The main page is the voice landing experience, with **Meet Seni**, sound and
+return controls. Live sessions add microphone mute and **End conversation**;
+**Talk to Seni** starts a fresh session afterward. **Surprise me** ends any active
+conversation and cycles **Seni → Jellyfish → Atom → Lotus → Seni**. Without an
+agent configured, the cached introduction retains its replay control.
+The jellyfish gathers into the centre
 before the atom's rings unfold. The atom spirals inward into a closed lotus bud,
 pauses, then blooms into layered petals. **Back to Seni** returns silently to
-her face, including during a transition. It never asks for microphone access,
-and speech text is not displayed. Chat is reserved for a later build.
+her face, including during a transition. Microphone access is requested only
+when the user starts a configured live conversation; ordinary page loading and
+visual studies do not start the microphone or contact ElevenLabs.
 
 The face/nebula retain their 32,000 desktop and 9,000 small-screen defaults.
 The alternate forms retain 48,000 particles, using a separate geometry in the
@@ -48,6 +77,10 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 `js/landing.js` wires the landing page to the existing renderer and voice player;
 `js/landing-flow.js` owns its cancellable greeting and form-selection lifecycle.
+`js/agent-config.js` loads runtime configuration, `js/agent-session.js` owns the
+live connection, and `js/agent-replies.js` routes incoming PCM, alignment and
+reply boundaries into the existing voice player. The locally vendored SDK and
+`js/eleven-setup.js` handle microphone setup and cancellation.
 `js/landing-forms.js` adapts the existing form generators and morphs to the
 landing's two particle counts. `js/stage.js` opts into that path only for the
 landing page; the standalone studies keep their own rendering paths.
@@ -60,11 +93,16 @@ with `?live=1`. Pure pose and expression controllers live in
 Run the local regression suite with
 `node --test scripts/*.test.mjs scripts/mouth-study/*.test.mjs`. No package install
 or build step is required. Tests use synthetic voice/provider boundaries and do
-not contact ElevenLabs or request a microphone.
+not contact ElevenLabs or request a microphone. Run the local server checks
+with `PYTHONDONTWRITEBYTECODE=1 python3 scripts/serve.test.py`; they use synthetic
+configuration and in-memory handler calls, without opening a server.
 
-The live adapter still needs a verified reply boundary before product integration:
-the pinned SDK reports “listening” for both a completed reply and an empty output
-queue during a transport gap. The local cached voice flow does not use that path.
+The landing connection finishes replies using the provider’s
+[`agent_response_complete` event](https://elevenlabs.io/docs/eleven-agents/customization/events/client-events#agent_response_complete),
+then lets already queued local audio drain. It never treats the SDK’s
+“listening” mode as a reply boundary, since an empty output queue can also mean
+a transport gap. The legacy `?live=1` study remains isolated from this product
+flow and retains its separate developer controls and capture tooling.
 
 Some legacy code in `js/shapes.js` deliberately consumes random draws to preserve
 the approved particle layouts. Keep that order intact during future cleanup.

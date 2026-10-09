@@ -479,3 +479,216 @@ test('Back to Seni interrupts the lotus bloom and never allows its old wait to s
   assert.equal(h.flow.phase, 'present');
   assert.equal(h.speaks().length, 1);
 });
+
+function setupLive({ startResult = null, voice = {}, options = {} } = {}) {
+  let h;
+  let state = { status: 'idle', speaking: false, micMuted: false, error: null };
+  const agentCalls = [];
+  const update = next => { state = { ...state, ...next }; h?.flow.agentChanged(); };
+  const agent = {
+    get state() { return { ...state }; },
+    prepare() { agentCalls.push(['prepare']); return Promise.resolve(); },
+    start(config) {
+      agentCalls.push(['start', config]);
+      update({ status: 'connecting', speaking: false, error: null });
+      if (startResult) return startResult();
+      update({ status: 'connected' });
+      return Promise.resolve({ status: 'connected' });
+    },
+    stop() { agentCalls.push(['stop']); update({ status: 'idle', speaking: false, micMuted: false, error: null }); },
+    setMicMuted(micMuted) { agentCalls.push(['mute', micMuted]); update({ micMuted }); }
+  };
+  h = setup(voice, { agent, agentConfig: { agentId: 'synthetic-agent' }, ...options });
+  return { ...h, agent, agentCalls, update,
+    starts: () => agentCalls.filter(([kind]) => kind === 'start') };
+}
+
+test('live entry activates output in the click, forms the face, then lets the agent own its greeting', async () => {
+  const h = setupLive();
+  assert.equal(h.flow.state.live, true);
+  assert.deepEqual(await h.flow.prepare(), { status: 'prepared' });
+  assert.deepEqual(h.agentCalls, [['prepare']]);
+  assert.equal(h.calls.length, 0, 'warmup only prepares the local agent adapter');
+  const entry = h.flow.meet();
+  assert.equal(h.calls[0][0], 'activate');
+  assert.equal(h.flow.phase, 'forming');
+  assert.equal(h.flow.meet(), entry, 'duplicate clicks share the session start');
+  h.advance(2.99); await flush();
+  assert.equal(h.starts().length, 0);
+  h.advance(.01);
+  assert.deepEqual(await entry, { status: 'connected' });
+  assert.deepEqual(h.starts(), [['start', { agentId: 'synthetic-agent' }]]);
+  assert.equal(h.flow.phase, 'listening');
+  assert.equal(h.flow.state.speaking, false);
+  h.update({ speaking: true });
+  assert.equal(h.flow.phase, 'speaking');
+  assert.equal(h.flow.state.speaking, true);
+  h.update({ speaking: false });
+  assert.equal(h.flow.phase, 'listening');
+  assert.equal(h.calls.some(([kind]) => ['preload', 'line', 'speak'].includes(kind)), false, 'live entry never queues a cached greeting');
+  assert.ok(h.replies.every(text => text === null), 'no cached greeting is sent to facial expression text analysis');
+});
+
+test('live microphone control is independent, ending stays on the face, and Talk starts a fresh session', async () => {
+  const h = setupLive();
+  const entry = h.flow.meet(); h.advance(3); await entry;
+  h.flow.setMicMuted(true);
+  assert.equal(h.flow.state.micMuted, true);
+  assert.equal(h.flow.phase, 'listening');
+  assert.deepEqual(h.agentCalls.at(-1), ['mute', true]);
+  h.flow.setMicMuted(false);
+  assert.equal(h.flow.state.micMuted, false);
+  h.flow.endConversation();
+  assert.equal(h.agent.state.status, 'idle');
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'face');
+  const callsAfterEnd = h.agentCalls.length;
+  h.flow.setMicMuted(true);
+  assert.equal(h.agentCalls.length, callsAfterEnd, 'a stopped session cannot acquire or mute a microphone');
+  assert.deepEqual(await h.flow.meet(), { status: 'connected' });
+  assert.equal(h.starts().length, 2);
+  const stops = h.agentCalls.filter(([kind]) => kind === 'stop').length;
+  assert.deepEqual(await h.flow.repeatGreeting(), { status: 'connected' });
+  assert.ok(h.agentCalls.filter(([kind]) => kind === 'stop').length > stops, 'a new greeting stops the existing live session');
+  assert.equal(h.starts().length, 3);
+  assert.equal(h.speaks().length, 0);
+});
+
+test('return before formation completes never connects after a late activation', async () => {
+  const activation = deferred();
+  const h = setupLive({ voice: { activate: () => activation.promise } });
+  const entry = h.flow.meet();
+  h.flow.returnToNebula();
+  assert.deepEqual(await entry, { status: 'stopped' });
+  activation.resolve(); h.advance(20); await flush();
+  assert.equal(h.starts().length, 0);
+  assert.equal(h.flow.phase, 'arrival');
+  assert.equal(h.agent.state.status, 'idle');
+});
+
+for (const action of ['returnToNebula', 'endConversation', 'dispose']) {
+  test(`${action} cancels a pending agent connection and rejects its late completion`, async () => {
+    const connection = deferred();
+    const h = setupLive({ startResult: () => connection.promise });
+    const entry = h.flow.meet(); h.advance(3); await flush();
+    assert.equal(h.flow.phase, 'connecting');
+    h.flow.setMicMuted(true);
+    assert.equal(h.flow.state.micMuted, true);
+    h.flow[action]();
+    assert.equal(h.agent.state.status, 'idle');
+    assert.deepEqual(await entry, { status: 'stopped' });
+    const states = h.states.length;
+    h.update({ status: 'connected', speaking: true });
+    connection.resolve({ status: 'connected' }); await flush();
+    assert.equal(h.states.length, states, 'old provider events cannot restore the conversation');
+    assert.equal(h.flow.state.speaking, false);
+    assert.equal(h.flow.phase, action === 'endConversation' ? 'present' : 'arrival');
+    if (action === 'dispose') assert.deepEqual(await h.flow.meet(), { status: 'disposed' });
+  });
+}
+
+for (const duringConnection of [false, true]) {
+  test(`Surprise Me ends ${duringConnection ? 'connecting' : 'speaking'} and exploring stays silent until Talk`, async () => {
+    const connection = deferred();
+    const h = setupLive({ startResult: duringConnection ? () => connection.promise : null });
+    const entry = h.flow.meet(); h.advance(3); await flush();
+    if (!duringConnection) { await entry; h.update({ speaking: true }); }
+    const change = h.flow.surprise();
+    assert.equal(h.agent.state.status, 'idle', 'the microphone/session is stopped immediately');
+    assert.equal(h.flow.state.form, 'jelly');
+    assert.equal(h.flow.phase, 'changing-form');
+    assert.equal(h.flow.state.speaking, false);
+    if (duringConnection) {
+      assert.deepEqual(await entry, { status: 'stopped' });
+      connection.resolve({ status: 'connected' });
+    }
+    h.advance(0); await change;
+    const back = h.flow.showFace(); h.advance(0); await back;
+    assert.equal(h.flow.phase, 'present');
+    assert.equal(h.starts().length, 1, 'returning to the face does not reacquire the microphone');
+    assert.equal(h.speaks().length, 0);
+  });
+}
+
+test('agent connection errors show a fixed recoverable failure and a disconnected face can talk again', async () => {
+  const connection = deferred();
+  const h = setupLive({ startResult: () => connection.promise });
+  const entry = h.flow.meet(); h.advance(3); await flush();
+  h.update({ status: 'error', error: 'Microphone access is blocked. Allow it and try again.' });
+  connection.resolve({ status: 'unavailable' });
+  assert.deepEqual(await entry, { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'present');
+  assert.match(h.flow.state.error, /Microphone access/);
+  h.agent.start = () => { h.update({ status: 'connected', error: null }); return Promise.resolve({ status: 'connected' }); };
+  assert.deepEqual(await h.flow.meet(), { status: 'connected' });
+  assert.equal(h.flow.phase, 'listening');
+  h.update({ status: 'idle' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.error, null);
+  assert.equal(h.flow.state.speaking, false);
+});
+
+test('live preparation and synchronous connection failures do not expose provider details or play fallback speech', async () => {
+  const h = setupLive({ startResult() { throw new Error('private provider details'); } });
+  h.agent.prepare = () => Promise.reject(new Error('local adapter unavailable'));
+  assert.deepEqual(await h.flow.prepare(), { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'arrival');
+  const entry = h.flow.meet(); h.advance(3);
+  assert.deepEqual(await entry, { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.error, 'The conversation could not connect. Try again.');
+  assert.equal(h.speaks().length, 0);
+  assert.equal(h.agent.state.status, 'idle');
+});
+
+test('without runtime configuration the original cached greeting remains available', async () => {
+  const h = setupLive({ options: { agentConfig: null } });
+  assert.equal(h.flow.state.live, undefined);
+  await h.flow.prepare();
+  const entry = h.flow.meet(); h.advance(3);
+  assert.deepEqual(await entry, { status: 'completed' });
+  assert.equal(h.agentCalls.length, 0);
+  assert.equal(h.speaks().length, 1);
+  assert.equal(h.flow.phase, 'present');
+});
+
+
+test('a resolved agent warmup failure stays silent and remains retryable', async () => {
+  const h = setupLive();
+  h.agent.prepare = () => Promise.resolve({ status: 'unavailable' });
+  assert.deepEqual(await h.flow.prepare(), { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'arrival');
+  assert.equal(h.flow.state.error, null);
+  const entry = h.flow.meet(); h.advance(3);
+  assert.deepEqual(await entry, { status: 'connected' });
+});
+
+test('a failed Surprise Me selection still closes the microphone and leaves Talk available', async () => {
+  const h = setupLive({ options: { setMode: mode => mode !== 'jelly' } });
+  const entry = h.flow.meet(); h.advance(3); await entry;
+  h.update({ speaking: true });
+  assert.deepEqual(await h.flow.surprise(), { status: 'unavailable' });
+  assert.equal(h.agent.state.status, 'idle');
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.flow.state.speaking, false);
+  assert.match(h.flow.state.error, /form could not appear/);
+});
+
+test('reconnecting from a form waits for its return even when output activation fails', async () => {
+  let transitioning = false;
+  const h = setupLive({ options: { isTransitioning: () => transitioning } });
+  const entry = h.flow.meet(); h.advance(3); await entry;
+  const change = h.flow.surprise(); h.advance(0); await change;
+  transitioning = true;
+  h.voice.activate = () => Promise.reject(Object.assign(new Error('suspended'), { code: 'AUDIO_UNAVAILABLE' }));
+  const reconnect = h.flow.meet(); await flush();
+  assert.equal(h.flow.phase, 'changing-form');
+  assert.equal(h.starts().length, 1);
+  transitioning = false;
+  h.advance(3);
+  assert.deepEqual(await reconnect, { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.flow.state.error, 'Audio could not start. Try again.');
+});
