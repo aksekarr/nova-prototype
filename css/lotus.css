@@ -1,0 +1,3 @@
+.lotus-header { display: flex; justify-content: space-between; }
+.lotus-study .quiet-button { text-decoration: none; }
+.lotus-study a:focus-visible { outline: 2px solid var(--violet); outline-offset: 5px; }

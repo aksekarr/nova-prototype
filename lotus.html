@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#04060c">
+  <title>Seni · Celestial Lotus</title>
+  <link rel="stylesheet" href="./css/landing.css">
+  <link rel="stylesheet" href="./css/lotus.css">
+  <script type="importmap">{"imports":{"three":"./js/vendor/three.module.js","three/addons/":"./js/vendor/addons/"}}</script>
+  <script type="module" src="./js/lotus-preview.js"></script>
+</head>
+<body class="lotus-study">
+  <canvas id="stage" aria-label="A celestial lotus of translucent light petals opening around a golden heart"></canvas>
+  <header class="masthead lotus-header">
+    <div class="wordmark" aria-label="Seni">
+      <svg class="brand-symbol" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2C16 12 12 16 2 16c10 0 14 4 14 14 0-10 4-14 14-14C20 16 16 12 16 2Z"/><circle cx="16" cy="16" r="12"/></svg>
+      <span>SENI</span>
+    </div>
+    <p class="preview-label"><span aria-hidden="true"></span>Form study</p>
+  </header>
+  <main><h1 class="sr-only">Celestial Lotus</h1></main>
+  <footer class="experience-footer">
+    <div class="presence">
+      <span class="presence-line" aria-hidden="true"></span>
+      <p>Celestial Lotus</p>
+      <p class="presence-note" id="lotus-status" role="status">Preparing the bloom…</p>
+    </div>
+    <div class="voice-controls" role="group" aria-label="Lotus preview controls">
+      <a class="quiet-button" href="./">Back to Seni</a>
+      <button class="quiet-button" id="bloom" type="button" disabled>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7a6 6 0 1 1 0 6M4 3v4h4"/></svg>
+        Bloom again
+      </button>
+    </div>
+  </footer>
+  <noscript><p class="no-script">Enable JavaScript to see the Celestial Lotus.</p></noscript>
+</body>
+</html>
