@@ -15,7 +15,7 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 ## Other pages
 
-- `jelly.html`: 48,000-particle jellyfish study. The face feeds a single upper-right stream while the bell forms; the completed body pulses and drifts. Explicit Face / Jellyfish controls only, with a direct reduced-motion alternative.
+- `jelly.html`: 48,000-particle jellyfish study. The face feeds a single upper-right stream while the bell forms; the bell then leads along a curved path, with trailing ribbons following its route and gentle lengthwise contractions. Explicit Face / Jellyfish controls only, with a direct reduced-motion alternative.
 - `orbit.html`: standalone orbital form for future text chat, with 48,000 particles by default.
 - `morph.html`: explicit **Face / Orbit** visual study. A fixed particle mapping preserves all 48,000 identities through an immediate gathering motion that fully settles in two seconds, including interrupted returns. Reduced motion uses a short direct interpolation. This page has no voice connection or idle timer; the main voice page is unchanged. All form studies accept `?n=…`.
 

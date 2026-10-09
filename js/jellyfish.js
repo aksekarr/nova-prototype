@@ -144,13 +144,13 @@ export function createJellyfish(N, reduce = false) {
     const t = reduce || !Number.isFinite(clock) ? 0 : clock;
     const beatS = Math.sin(t * 1.65), beatC = Math.cos(t * 1.65);
     const beat = .5 + .5 * beatS, squeeze = beat * beat * beat;
-    const radiusScale = 1 - .12 * squeeze, heightScale = 1 + .11 * squeeze;
+    const radiusScale = 1 - .04 * squeeze, heightScale = 1 + .03 * squeeze;
     const rippleS = Math.sin(t * 1.2), rippleC = Math.cos(t * 1.2);
     const waveS = Math.sin(t * 1.35), waveC = Math.cos(t * 1.35);
     const curlS = Math.sin(t * 1.08), curlC = Math.cos(t * 1.08);
     const lightS = Math.sin(t * .83), lightC = Math.cos(t * .83);
-    const tilt = -.22 + .065 * Math.sin(t * .24);
-    const ct = Math.cos(tilt), st = Math.sin(tilt);
+    // Locomotion bends and orients the body along its direction of travel.
+    // Keep the local long axis upright so its head and trailing slices agree.
     const yaw = .12 * Math.sin(t * .19), cy = Math.cos(yaw), sy = Math.sin(yaw);
     for (let i = 0; i < N; i++) {
       const j = i * 3, out = output[i] * 3, w = i * 6, k = kind[i], u = extent[i];
@@ -172,9 +172,9 @@ export function createJellyfish(N, reduce = false) {
         const wave = waves[w] * waveC - waves[w + 1] * waveS;
         const curl = waves[w + 2] * curlC - waves[w + 3] * curlS;
         const lag = waves[w + 5] * beatS - waves[w + 4] * beatC;
-        const amplitude = u * (.075 + u * .28);
-        x *= 1 - .12 * squeeze * (1 - u);
-        z *= 1 - .12 * squeeze * (1 - u);
+        const amplitude = u * (.06 + u * .22);
+        x *= 1 - .04 * squeeze * (1 - u);
+        z *= 1 - .04 * squeeze * (1 - u);
         x += wave * amplitude + curl * .07 * u * u;
         z += curl * amplitude * .66;
         y += .075 * lag * u + .04 * wave * u * u;
@@ -184,8 +184,8 @@ export function createJellyfish(N, reduce = false) {
         y += .035 * (waves[w + 2] * curlC - waves[w + 3] * curlS);
       }
       const turnedX = x * cy + z * sy;
-      positions[out] = turnedX * ct - y * st;
-      positions[out + 1] = turnedX * st + y * ct;
+      positions[out] = turnedX;
+      positions[out + 1] = y;
       positions[out + 2] = -x * sy + z * cy;
       const shimmer = 1 + .09 * (waves[w + 4] * lightC - waves[w + 5] * lightS);
       intensity *= shimmer * densityGain;
