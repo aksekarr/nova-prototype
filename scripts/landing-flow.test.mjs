@@ -34,7 +34,7 @@ function setup(overrides = {}, options = {}) {
 
 test('entry begins audio activation and face formation in the click, then speaks only intro after 3 s of rendered time', async () => {
   const h = setup();
-  assert.deepEqual(h.flow.state, { phase: 'arrival', busy: false, speaking: false, error: null });
+  assert.deepEqual(h.flow.state, { phase: 'arrival', form: 'nebula', busy: false, speaking: false, error: null });
   assert.equal(h.states.length, 0, 'factory construction does not invoke callbacks');
   const entry = h.flow.meet();
   assert.deepEqual(h.calls.slice(0, 3), [['activate'], ['preload', ['intro'], undefined], ['mode', 'face']]);
@@ -107,7 +107,7 @@ test('failed entry loading exposes an error and can be retried without restartin
 test('activation rejection is recoverable and cannot leave the entry permanently busy', async () => {
   const h = setup({ activate: () => Promise.reject(Object.assign(new Error('interrupted'), { code: 'AUDIO_UNAVAILABLE' })) });
   assert.deepEqual(await h.flow.meet(), { status: 'unavailable' });
-  assert.deepEqual(h.flow.state, { phase: 'error', busy: false, speaking: false, error: 'Audio could not start. Try again.' });
+  assert.deepEqual(h.flow.state, { phase: 'error', form: 'face', busy: false, speaking: false, error: 'Audio could not start. Try again.' });
   h.voice.activate = () => Promise.resolve();
   const retry = h.flow.meet(); h.advance(3);
   assert.deepEqual(await retry, { status: 'completed' });
@@ -232,4 +232,202 @@ test('dispose resolves pending entry and warmup and prevents future voice or sta
   assert.equal(h.calls.length, callCount);
   assert.equal(h.states.length, stateCount);
   assert.equal(h.speaks().length, 0);
+});
+
+async function meet(h) {
+  const entry = h.flow.meet();
+  h.advance(3);
+  assert.deepEqual(await entry, { status: 'completed' });
+}
+
+test('Surprise Me is unavailable before meeting or during a greeting', async () => {
+  const speech = deferred();
+  const h = setup({ speak: () => speech.promise });
+  assert.deepEqual(await h.flow.surprise(), { status: 'ignored' });
+  assert.deepEqual(await h.flow.showFace(), { status: 'ignored' });
+  const entry = h.flow.meet();
+  assert.deepEqual(await h.flow.surprise(), { status: 'ignored' });
+  h.advance(3); await flush();
+  assert.deepEqual(await h.flow.surprise(), { status: 'ignored' });
+  assert.equal(h.flow.state.form, 'face');
+  speech.resolve({ status: 'completed' }); await entry;
+});
+
+test('Surprise Me alternates atom and jellyfish and settles only after the renderer completes', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  const callCount = h.calls.length;
+  for (const expected of ['orbit', 'jelly', 'orbit']) {
+    transitioning = true;
+    const change = h.flow.surprise();
+    assert.deepEqual(h.flow.state, { phase: 'changing-form', form: expected, busy: true, speaking: false, error: null });
+    assert.deepEqual(await h.flow.surprise(), { status: 'ignored' });
+    h.advance(10); await flush();
+    assert.equal(h.flow.phase, 'changing-form', 'elapsed time cannot end a renderer transition');
+    transitioning = false;
+    h.advance(0);
+    assert.deepEqual(await change, { status: 'completed' });
+    assert.equal(h.flow.phase, 'present');
+    assert.equal(h.flow.state.form, expected);
+  }
+  assert.equal(h.calls.slice(callCount).some(([type]) => ['activate', 'preload', 'speak'].includes(type)), false);
+  assert.equal(h.replies.at(-1), null);
+});
+
+test('form changes with an immediate renderer still wait for a rendered frame', async () => {
+  const h = setup();
+  await meet(h);
+  const change = h.flow.surprise();
+  await flush();
+  assert.equal(h.flow.phase, 'changing-form');
+  h.advance(0); await change;
+  assert.equal(h.flow.phase, 'present');
+});
+
+test('Show Seni reverses an in-flight change silently and invalidates its late completion', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  const spokenCount = h.speaks().length;
+  transitioning = true;
+  const surprise = h.flow.surprise();
+  const face = h.flow.showFace();
+  assert.deepEqual(await surprise, { status: 'stopped' });
+  assert.equal(h.flow.state.form, 'face');
+  h.advance(3); await flush();
+  assert.equal(h.flow.phase, 'changing-form');
+  transitioning = false;
+  h.advance(0); await face;
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.speaks().length, spokenCount);
+  assert.deepEqual(await h.flow.showFace(), { status: 'completed' });
+  const next = h.flow.surprise(); h.advance(0); await next;
+  assert.equal(h.flow.state.form, 'jelly', 'returning to the face preserves the cycle');
+});
+
+test('replay from an alternate form activates immediately and waits for the face morph', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  const surprise = h.flow.surprise(); h.advance(0); await surprise;
+  transitioning = true;
+  const callsBefore = h.calls.length;
+  const replay = h.flow.repeatGreeting();
+  assert.equal(h.calls[callsBefore][0], 'activate');
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.flow.phase, 'changing-form');
+  h.advance(20); await flush();
+  assert.equal(h.speaks().length, 1);
+  transitioning = false;
+  h.advance(0); await replay;
+  assert.equal(h.speaks().length, 2);
+  assert.equal(h.flow.phase, 'present');
+});
+
+test('replay can replace an in-flight form change without its old completion winning', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  transitioning = true;
+  const surprise = h.flow.surprise();
+  const replay = h.flow.repeatGreeting();
+  assert.deepEqual(await surprise, { status: 'stopped' });
+  h.advance(2); await flush();
+  assert.equal(h.flow.phase, 'changing-form');
+  transitioning = false;
+  h.advance(0); await replay;
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.speaks().length, 2);
+});
+
+test('returning to the nebula cancels an in-flight form change and resets the cycle', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  transitioning = true;
+  const surprise = h.flow.surprise();
+  h.flow.returnToNebula();
+  assert.deepEqual(await surprise, { status: 'stopped' });
+  assert.equal(h.flow.state.form, 'nebula');
+  assert.equal(h.flow.phase, 'arrival');
+  transitioning = false;
+  h.advance(20); await flush();
+  assert.equal(h.flow.phase, 'arrival');
+  await meet(h);
+  const next = h.flow.surprise(); h.advance(0); await next;
+  assert.equal(h.flow.state.form, 'orbit');
+});
+
+test('a failed form selection retains the current presence and retries the same form', async () => {
+  let failOrbit = true;
+  const selected = [];
+  const h = setup({}, { setMode(mode) {
+    selected.push(mode);
+    if (mode === 'orbit' && failOrbit) throw new Error('private asset path');
+    return true;
+  } });
+  await meet(h);
+  assert.deepEqual(await h.flow.surprise(), { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.flow.state.busy, false);
+  assert.match(h.flow.state.error, /try again/i);
+  assert.ok(!h.flow.state.error.includes('private'));
+  failOrbit = false;
+  const next = h.flow.surprise(); h.advance(0); await next;
+  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.state.error, null);
+  assert.deepEqual(selected, ['face', 'orbit', 'orbit']);
+});
+
+test('a failed Show Seni selection leaves the active form transition owned and able to settle', async () => {
+  let transitioning = false, failFace = false;
+  const h = setup({}, { isTransitioning: () => transitioning,
+    setMode: mode => !(failFace && mode === 'face') });
+  await meet(h);
+  transitioning = true;
+  const surprise = h.flow.surprise();
+  failFace = true;
+  assert.deepEqual(await h.flow.showFace(), { status: 'unavailable' });
+  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.phase, 'changing-form');
+  transitioning = false;
+  h.advance(0);
+  assert.deepEqual(await surprise, { status: 'completed' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'orbit');
+});
+
+test('failed replay audio keeps a known presence and finishes its face transition safely', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
+  await meet(h);
+  const surprise = h.flow.surprise(); h.advance(0); await surprise;
+  h.voice.activate = () => Promise.reject(Object.assign(new Error('suspended'), { code: 'AUDIO_UNAVAILABLE' }));
+  transitioning = true;
+  const replay = h.flow.repeatGreeting();
+  await flush();
+  assert.equal(h.flow.phase, 'changing-form');
+  assert.equal(h.flow.state.error, 'Audio could not start. Try again.');
+  transitioning = false;
+  h.advance(0);
+  assert.deepEqual(await replay, { status: 'unavailable' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.speaks().length, 1);
+});
+
+test('dispose cancels changing forms and rejects further form activity', async () => {
+  const h = setup();
+  await meet(h);
+  const change = h.flow.surprise();
+  h.flow.dispose();
+  assert.deepEqual(await change, { status: 'stopped' });
+  const count = h.calls.length;
+  assert.deepEqual(await h.flow.surprise(), { status: 'disposed' });
+  assert.deepEqual(await h.flow.showFace(), { status: 'disposed' });
+  h.advance(50); await flush();
+  assert.equal(h.calls.length, count);
+  assert.equal(h.flow.phase, 'arrival');
 });

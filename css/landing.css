@@ -105,6 +105,7 @@ button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke
 .presence-line::after { content: ''; position: absolute; width: 5px; height: 5px; left: calc(50% - 2.5px); top: -2px; border: 1px solid #bba7bc; background: #0d0c16; transform: rotate(45deg); box-shadow: 0 0 8px rgb(195 163 246 / 20%); }
 .presence p { margin: 0; font: 400 17px/1.3 var(--inscription); letter-spacing: .11em; text-transform: uppercase; color: #e2d6e9; }
 .presence .presence-note { margin-top: 7px; color: var(--soft); font: 10px/1.6 var(--mono); letter-spacing: .01em; text-transform: none; }
+.presence .form-error { max-width: 340px; margin: 8px auto 0; color: #e5c2b0; font: 10px/1.6 var(--mono); letter-spacing: 0; text-transform: none; }
 .voice-controls { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px 12px; pointer-events: auto; }
 .quiet-button {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
@@ -118,6 +119,7 @@ button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke
 .quiet-button:not(:disabled):active { background-color: #0b0b14; box-shadow: inset 0 2px 5px #050509; }
 .quiet-button:disabled { color: #747988; opacity: .65; }
 .quiet-button svg { width: 16px; height: 16px; }
+.surprise-button { border-color: rgb(180 150 186 / 48%); color: #e8dcef; }
 .control-short { display: none; }
 .sound-cross { display: none; }
 .sound-button[aria-pressed="true"] .sound-waves { display: none; }
@@ -132,11 +134,16 @@ button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke
   .mode-switch { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
   .meet-button { min-width: 248px; min-height: 64px; font-size: 15px; padding: 20px; }
   .experience-footer { gap: 16px; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
-  .voice-controls { max-width: 380px; gap: 8px; }
+  .voice-controls { max-width: 440px; gap: 8px; }
   .quiet-button { padding: 10px 11px; font-size: 11px; }
   .control-full { display: none; }
   .control-short { display: inline; }
   .presence .presence-note { font-size: 9px; }
+}
+@media (max-width: 460px) {
+  body:is([data-phase="present"], [data-phase="changing-form"]) .voice-controls {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(280px, 100%);
+  }
 }
 @media (max-height: 530px) and (min-width: 621px) {
   .masthead { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }

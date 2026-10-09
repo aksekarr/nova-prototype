@@ -169,7 +169,7 @@ const TUNING = {
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null, idleForm = orbital, nebulaEnhancement = false }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null, idleForm = orbital, nebulaEnhancement = false, landingForms = null }) {
   const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const hasFace = Boolean(shapes.MAPS);
   const canvas = document.getElementById('stage');
@@ -439,14 +439,15 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   }
 
   function tiltPreviewPoint() {
-    if (!formMorph) return;
+    if (!formMorph && !landingForms?.active) return;
     const { x, y, z } = projectPoint;
-    const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(formTilt), sx = Math.sin(formTilt);
+    const tilt = landingForms?.active ? landingTilt : formTilt;
+    const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(tilt), sx = Math.sin(tilt);
     const tz = z * cy - x * sy;
     projectPoint.set(x * cy + z * sy, y * cx - tz * sx, y * sx + tz * cx);
   }
 
-  function projectClearance(settledFace = state.mode === 'face') {
+  function projectClearance(settledFace = state.mode === 'face', displayPositions = DISPLAY_POS, displayCount = N) {
     camera.updateMatrixWorld();
     points.updateMatrixWorld();
     clipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(points.matrixWorld);
@@ -485,13 +486,14 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     }
     const m = clipMatrix.elements;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (let i = 0, j = 0; i < N; i++, j += 3) {
-      const x = DISPLAY_POS[j], y = DISPLAY_POS[j + 1], z = DISPLAY_POS[j + 2];
+    const projectedPoints = displayCount > N ? landingScreenPoints : screenPoints;
+    for (let i = 0, j = 0; i < displayCount; i++, j += 3) {
+      const x = displayPositions[j], y = displayPositions[j + 1], z = displayPositions[j + 2];
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
-      if (w <= 0.1) { screenPoints[i * 2] = NaN; continue; }
+      if (w <= 0.1) { projectedPoints[i * 2] = NaN; continue; }
       const sx = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w * 0.5 + 0.5;
       const sy = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w * 0.5 + 0.5;
-      screenPoints[i * 2] = sx; screenPoints[i * 2 + 1] = sy;
+      projectedPoints[i * 2] = sx; projectedPoints[i * 2 + 1] = sy;
       minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
       minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
     }
@@ -500,10 +502,10 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const rx = Math.max(0.001, (maxX - minX) * 0.5);
     const ry = Math.max(0.001, (maxY - minY) * 0.5);
     let radiusSquared = 1;
-    for (let i = 0; i < N; i++) {
-      if (!Number.isFinite(screenPoints[i * 2])) continue;
-      const x = (screenPoints[i * 2] - clearCenter.x) / rx;
-      const y = (screenPoints[i * 2 + 1] - clearCenter.y) / ry;
+    for (let i = 0; i < displayCount; i++) {
+      if (!Number.isFinite(projectedPoints[i * 2])) continue;
+      const x = (projectedPoints[i * 2] - clearCenter.x) / rx;
+      const y = (projectedPoints[i * 2 + 1] - clearCenter.y) / ry;
       radiusSquared = Math.max(radiusSquared, x * x + y * y);
     }
     // Enclose the complete silhouette, then leave room for bloom before the
@@ -648,6 +650,167 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   }
   let formTilt = 0;
 
+  let landingGeometry = null, landingScreenPoints = null, landingTargetColours = null;
+  let landingTilt = 0, landingAppearance = 1, landingDepth = 0, landingGas = 1, landingNebula = 0;
+  let landingWrap = 1, landingGasStart = 1, landingNebulaStart = 0, landingWrapStart = 1;
+  const landingClearStart = landingForms ? new Float32Array(4) : null;
+  const landingFeatureStart = landingForms ? new Float32Array(16) : null;
+
+  function prepareLandingGeometry() {
+    if (landingGeometry) return;
+    const count = landingForms.count;
+    landingScreenPoints = new Float32Array(count * 2);
+    landingTargetColours = new Float32Array(N * 3);
+    const starSizes = new Float32Array(count), protection = new Float32Array(count), glints = new Float32Array(count);
+    starSizes.set(shapes.STAR_SIZE || SIZE);
+    protection.set(shapes.PROTECT || new Float32Array(N));
+    glints.set(GLINT);
+    landingGeometry = new THREE.BufferGeometry();
+    landingGeometry.setAttribute('position', new THREE.BufferAttribute(landingForms.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    landingGeometry.setAttribute('color', new THREE.BufferAttribute(landingForms.colours, 3).setUsage(THREE.DynamicDrawUsage));
+    landingGeometry.setAttribute('size', new THREE.BufferAttribute(landingForms.sizes, 1));
+    landingGeometry.setAttribute('glint', new THREE.BufferAttribute(glints, 1));
+    landingGeometry.setAttribute('faceStarSize', new THREE.BufferAttribute(starSizes, 1));
+    landingGeometry.setAttribute('faceProtection', new THREE.BufferAttribute(protection, 1));
+    if (nebulaLife) {
+      const homes = new Float32Array(count * 3);
+      for (let j = 0; j < homes.length; j++) homes[j] = NEB[j % NEB.length];
+      landingGeometry.setAttribute('nebulaHome', new THREE.BufferAttribute(homes, 3));
+    }
+  }
+
+  function rotateLandingTarget(positions) {
+    const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(landingTilt), sx = Math.sin(landingTilt);
+    for (let j = 0; j < positions.length; j += 3) {
+      const x = positions[j], y = positions[j + 1], z = positions[j + 2];
+      const tz = z * cy - x * sy;
+      positions[j] = x * cy + z * sy;
+      positions[j + 1] = y * cx - tz * sx;
+      positions[j + 2] = y * sx + tz * cx;
+    }
+  }
+
+  function frameLandingForms(dt, elapsed, mode, clock) {
+    const changed = landingForms.pending;
+    if (changed) {
+      const alreadyActive = landingForms.active;
+      if (!alreadyActive) {
+        landingTilt = points.rotation.x;
+        frameTargets.set(DISPLAY_POS);
+        rotateLandingTarget(frameTargets);
+      }
+      landingForms.begin(alreadyActive ? landingForms.positions : frameTargets,
+        alreadyActive ? landingForms.colours : COL, clock, camera.aspect);
+      prepareLandingGeometry();
+      points.geometry = landingGeometry;
+      points.rotation.set(0, 0, 0);
+      landingAppearance = uniforms.faceDisplayMix.value;
+      landingDepth = camera.position.z;
+      if (!alreadyActive) {
+        landingGas = gasWeight.reduce((sum, value) => sum + value, 0) / N;
+        landingNebula = uniforms.nebulaGlints.value;
+        landingWrap = landingAppearance;
+      }
+      landingGasStart = landingGas; landingNebulaStart = landingNebula; landingWrapStart = landingWrap;
+      landingClearStart[0] = clearCenter.x; landingClearStart[1] = clearCenter.y;
+      landingClearStart[2] = clearExtent.x; landingClearStart[3] = clearExtent.y;
+      for (let i = 0; i < featureClearance.length; i++) featureClearance[i].toArray(landingFeatureStart, i * 4);
+    }
+    const speed = reduce ? .4 : 1, angle = clock * .025 * speed;
+    if (mode === 'face') {
+      const colourRate = 1 - Math.exp(-dt / .018);
+      for (let i = 0, j = 0; i < N; i++, j += 3) {
+        const rate = 1 - Math.pow(1 - (i < FEATURE_END ? .45 : RATE[i]), dt * 60);
+        if (shapes.RECYCLED?.[i]) {
+          POS[j] = FACE[j]; POS[j + 1] = FACE[j + 1]; POS[j + 2] = FACE[j + 2];
+          COL[j] = COL[j + 1] = COL[j + 2] = 0;
+        }
+        for (let c = 0; c < 3; c++) {
+          POS[j + c] += (FACE[j + c] - POS[j + c]) * rate;
+          COL[j + c] += (FACE_COL[j + c] - COL[j + c]) * (i < FEATURE_END ? colourRate : rate);
+        }
+      }
+      headDisplay.apply(POS, frameTargets, 1);
+      rotY += (mouse.x * .22 - rotY) * Math.min(1, dt * 2);
+      landingTilt += (mouse.y * .08 - landingTilt) * Math.min(1, dt * 2);
+      rotateLandingTarget(frameTargets);
+      landingTargetColours.set(COL);
+    } else if (mode === 'nebula') {
+      const cosine = Math.cos(angle), sine = Math.sin(angle);
+      for (let i = 0, j = 0; i < N; i++, j += 3) {
+        frameTargets[j] = NEB[j] * cosine - NEB[j + 2] * sine;
+        frameTargets[j + 1] = NEB[j + 1] + Math.sin(clock * .35 + PH[i]) * .22 * speed;
+        frameTargets[j + 2] = NEB[j] * sine + NEB[j + 2] * cosine;
+      }
+      landingTargetColours.set(NEB_COL);
+    }
+    landingForms.sample(clock, camera.aspect, frameTargets, landingTargetColours);
+    const ease = landingForms.blend;
+    const faceMix = mode === 'face' ? 1 : 0, nebulaMix = mode === 'nebula' ? 1 : 0;
+    uniforms.faceDisplayMix.value = landingAppearance + (faceMix - landingAppearance) * ease;
+    landingNebula = landingNebulaStart + (nebulaMix - landingNebulaStart) * ease;
+    uniforms.nebulaGlints.value = landingNebula;
+    uniforms.pointSize.value = TUNING.pointSize * (N > 10000 ? 1
+      : 1 + .2 * Math.max(uniforms.faceDisplayMix.value, landingNebula));
+    landingGeometry.attributes.position.needsUpdate = true;
+    landingGeometry.attributes.color.needsUpdate = true;
+    const targetDepth = mode === 'face' ? mapFitDepth : mode === 'nebula' ? baseZ
+      : landingForms.cameraDepth(camera.aspect, slope);
+    camera.position.z = landingForms.transitioning ? landingDepth + (targetDepth - landingDepth) * ease
+      : camera.position.z + (targetDepth - camera.position.z) * Math.min(1, dt * 3);
+    const drift = reduce ? 0 : TUNING.driftAmount * landingNebula;
+    camera.position.x += (mouse.x * .6 + Math.sin(clock * .028) * .55 * drift - camera.position.x) * Math.min(1, dt * 1.5);
+    camera.position.y += (-mouse.y * .4 + Math.sin(clock * .019) * .25 * drift - camera.position.y) * Math.min(1, dt * 1.5);
+    uniforms.focusDistance.value = camera.position.z;
+    camera.lookAt(0, 0, 0);
+    projectClearance(mode === 'face', landingForms.positions, landingForms.count);
+    if (landingForms.transitioning) {
+      clearCenter.set(landingClearStart[0] + (clearCenter.x - landingClearStart[0]) * ease,
+        landingClearStart[1] + (clearCenter.y - landingClearStart[1]) * ease);
+      clearExtent.set(landingClearStart[2] + (clearExtent.x - landingClearStart[2]) * ease,
+        landingClearStart[3] + (clearExtent.y - landingClearStart[3]) * ease);
+      for (let i = 0; i < featureClearance.length; i++) {
+        const feature = featureClearance[i], j = i * 4;
+        feature.set(landingFeatureStart[j] + (feature.x - landingFeatureStart[j]) * ease,
+          landingFeatureStart[j + 1] + (feature.y - landingFeatureStart[j + 1]) * ease,
+          landingFeatureStart[j + 2] + (feature.z - landingFeatureStart[j + 2]) * ease,
+          landingFeatureStart[j + 3] + (feature.w - landingFeatureStart[j + 3]) * ease);
+      }
+    }
+    landingWrap = landingWrapStart + (faceMix - landingWrapStart) * ease;
+    const targetGas = mode === 'face' ? .25 + TUNING.gasWrap * .9 : mode === 'nebula' ? 1 : .3;
+    landingGas = landingGasStart + (targetGas - landingGasStart) * ease;
+    if (nebulaLife) {
+      camera.updateMatrixWorld();
+      nebulaLife.update(dt, clock, landingForms.positions, landingNebula, mode === 'nebula', camera, points.rotation);
+    }
+    stars.update(clock, reduce);
+    gas.update(dt, clock * speed, angle, landingGas, 1 - landingNebula, landingNebula, clearCenter, clearExtent,
+      landingWrap * Math.min(1, TUNING.gasWrap), featureClearance);
+    gas.render(renderer);
+    const trail = reduce || !landingForms.transitioning ? 0
+      : .65 * THREE.MathUtils.smoothstep(landingForms.progress, 0, .035) * Math.pow(1 - ease, .35);
+    trails.uniforms.damp.value = trail > 0 && trails.enabled && !changed ? Math.pow(trail, elapsed * 60) : 0;
+    trails.enabled = trail > 0;
+    composer.render();
+    if (landingForms.finish()) {
+      // Restore the untouched normal geometry only once the extra grains are
+      // fully dark and its original identities are back at their live targets.
+      points.geometry = geom;
+      if (mode === 'face') {
+        headDisplay.apply(POS, DISPLAY_POS, 1);
+        points.rotation.set(landingTilt, rotY, 0);
+      } else {
+        POS.set(frameTargets); DISPLAY_POS.set(frameTargets); COL.set(NEB_COL);
+        rotY = 0; points.rotation.set(0, 0, 0);
+      }
+      geom.attributes.position.needsUpdate = true; geom.attributes.color.needsUpdate = true;
+      cameraDepth.fill(camera.position.z); gasWeight.fill(targetGas); nebulaWeight.fill(nebulaMix);
+      uniforms.pointSize.value = TUNING.pointSize * (N > 10000 ? 1 : 1.2);
+      morphMode = mode; morphRemaining = 0;
+    }
+  }
+
   function frame(nowMs) {
     const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);
     last = now;
@@ -655,6 +818,11 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const { mode, modeT, clock } = state;
     onFrame(dt, clock);
     updateFace(dt, clock);
+    if (landingForms && (landingForms.pending || landingForms.active)) {
+      frameLandingForms(dt, elapsed, state.mode, clock);
+      requestAnimationFrame(frame);
+      return;
+    }
     if (formMorph && mode !== 'face') idleForm.update(clock);
     else if (mode === 'orbit') orbital.update(clock);
     if (formMorph) {

@@ -44,6 +44,7 @@
       <span class="presence-line" aria-hidden="true"></span>
       <p id="presence-title">Seni is here</p>
       <p class="presence-note" id="presence-note">Live conversation is coming soon</p>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
     </div>
     <div class="voice-controls" role="group" aria-label="Voice controls">
       <button class="quiet-button" id="return" type="button" aria-label="Return to nebula" hidden>
@@ -53,6 +54,14 @@
       <button class="quiet-button" id="replay" type="button" aria-label="Replay introduction" hidden>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7a6 6 0 1 1 0 6M4 3v4h4"/></svg>
         <span class="control-full">Replay introduction</span><span class="control-short" aria-hidden="true">Replay</span>
+      </button>
+      <button class="quiet-button" id="back-face" type="button" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4 2 10l6 6M2 10h16"/></svg>
+        Back to Seni
+      </button>
+      <button class="quiet-button surprise-button" id="surprise" type="button" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2 2 6 6 2-6 2-2 6-2-6-6-2 6-2Z"/></svg>
+        Surprise me
       </button>
       <button class="quiet-button sound-button" id="sound" type="button" aria-pressed="false" aria-label="Mute sound" disabled>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 4-4 4H1v4h3l4 4V4Z"/><g class="sound-waves"><path d="M11 7a5 5 0 0 1 0 6m3-9a9 9 0 0 1 0 12"/></g><path class="sound-cross" d="m12 7 6 6m0-6-6 6"/></svg>

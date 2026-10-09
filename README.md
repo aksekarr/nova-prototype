@@ -9,8 +9,16 @@ This version uses cached audio only; chat and live conversation come later.
 Serve the static files with `python3 -m http.server 4173`, then open `http://localhost:4173/` in Safari.
 
 The main page is the voice landing experience, with **Meet Seni**, sound,
-replay and return controls. It never asks for microphone access, and speech text
-is not displayed. Chat is visibly reserved for a later build.
+replay and return controls. After the introduction, **Surprise me** alternates
+between the existing Atom and Jellyfish. **Back to Seni** returns silently to
+her face, including during a transition. It never asks for microphone access,
+and speech text is not displayed. Chat is reserved for a later build.
+
+The face/nebula retain their 32,000 desktop and 9,000 small-screen defaults.
+The alternate forms retain 48,000 particles, using a separate geometry in the
+same renderer. Extra particles emerge during the transition and fade on return.
+`?n=` explicitly overrides both pools. Form preparation happens during initial
+setup; idle geometry is allocated once on first use, then reused.
 
 The previous form-study page is preserved at `study.html`. Existing `?tune=1`
 and `?live=1` links redirect there, retaining their parameters. Preview pages
@@ -29,14 +37,17 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 - `jelly.html`: 48,000-particle jellyfish study. The face feeds a single upper-right stream while the bell forms; the bell then leads along a curved path, with trailing ribbons following its route and gentle lengthwise contractions. Explicit Face / Jellyfish controls only, with a direct reduced-motion alternative.
 - `orbit.html`: standalone orbital form for future text chat, with 48,000 particles by default.
-- `morph.html`: explicit **Face / Orbit** visual study. A fixed particle mapping preserves all 48,000 identities through an immediate gathering motion that fully settles in two seconds, including interrupted returns. Reduced motion uses a short direct interpolation. This page has no voice connection or idle timer; the main voice page is unchanged. All form studies accept `?n=…`.
+- `morph.html`: explicit **Face / Orbit** visual study. A fixed particle mapping preserves all 48,000 identities through an immediate gathering motion that fully settles in two seconds, including interrupted returns. Reduced motion uses a short direct interpolation. This page has no voice connection or idle timer. All form studies accept `?n=…`.
 
 - `spike/agent.html`: live-agent test bench. It connects to the ElevenLabs agent (paste the agent ID each run; it is never stored) and logs timing, text and output volume. Downloaded logs contain your own speech, so never commit them.
 
 ## Code organisation and checks
 
 `js/landing.js` wires the landing page to the existing renderer and voice player;
-`js/landing-flow.js` owns its cancellable entry/replay lifecycle.
+`js/landing-flow.js` owns its cancellable greeting and form-selection lifecycle.
+`js/landing-forms.js` adapts the existing form generators and morphs to the
+landing's two particle counts. `js/stage.js` opts into that path only for the
+landing page; the standalone studies keep their own rendering paths.
 `js/main.js` wires the separate study page, face and renderer together. The existing cached demo
 and speech-lab interactions live in `js/study-flow.js`; `js/live.js` is loaded only
 with `?live=1`. Pure pose and expression controllers live in
