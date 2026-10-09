@@ -54,7 +54,7 @@ const TUNING = {
   browFlashAmount: 1,
   microAmount: 1,
   micro: {
-    amplitudes: { smile: 0.16, upperLid: 0.16, lowerLid: 0.2, browL: 0.16, browR: 0.16 },
+    amplitudes: { smile: 0.16, upperLid: 0.216, lowerLid: 0.27, browL: 0.216, browR: 0.216 },
     periods: { drift: [2, 6], quiet: [7, 13] },
     phraseLift: { browL: 0.2, browR: 0.2, upperLid: -0.1, smile: 0.1 },
     phraseAttack: 0.3, phraseRelease: 0.45, blend: 0.4, release: 0.4,
