@@ -9,8 +9,9 @@ This version uses cached audio only; chat and live conversation come later.
 Serve the static files with `python3 -m http.server 4173`, then open `http://localhost:4173/` in Safari.
 
 The main page is the voice landing experience, with **Meet Seni**, sound,
-replay and return controls. After the introduction, **Surprise me** alternates
-between the existing Atom and Jellyfish. **Back to Seni** returns silently to
+replay and return controls. After the introduction, **Surprise me** cycles
+**Seni → Jellyfish → Atom → Seni**. The jellyfish gathers into the centre before
+the atom's rings unfold. **Back to Seni** returns silently to
 her face, including during a transition. It never asks for microphone access,
 and speech text is not displayed. Chat is reserved for a later build.
 

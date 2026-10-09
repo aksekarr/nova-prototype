@@ -248,3 +248,18 @@ test('gathering moves immediately, varies particle arrivals and resolves most tr
   assert.equal(morph.active, false);
   assert.equal(morph.blend, 1);
 });
+
+
+test('reduced motion bypasses centre gathering for a short direct move', () => {
+  const orbital = createOrbital(COUNT, true);
+  const direct = createFormMorph(face.positions, orbital.positions, { reduce: true });
+  const gather = createFormMorph(face.positions, orbital.positions, { reduce: true });
+  direct.begin(face.positions, face.colours, 0);
+  gather.begin(face.positions, face.colours, 0, { gather: true });
+  for (const time of [0, .21, .42]) {
+    direct.sample(time, orbital.positions, orbital.colours);
+    gather.sample(time, orbital.positions, orbital.colours);
+    assert.deepEqual(gather.positions, direct.positions);
+    assert.deepEqual(gather.colours, direct.colours);
+  }
+});

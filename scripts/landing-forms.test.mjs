@@ -153,3 +153,38 @@ test('unsupported modes fail before changing an active transition', () => {
   assert.equal(forms.transitioning, true);
   assert.throws(() => createLandingForms({ shapes: { N: 0 } }), RangeError);
 });
+
+
+test('jellyfish gathers into the atom centre, keeps every grain and can reverse continuously', () => {
+  const face = facePool(4000), forms = createLandingForms({ shapes: face, idleCount: 6000 });
+  const radius = positions => {
+    let squared = 0;
+    for (const value of positions) squared += value * value;
+    return Math.sqrt(squared / (positions.length / 3));
+  };
+  forms.select('face', 0);
+  forms.select('jelly', 1); forms.begin(face.positions, face.colours, 1, 1.7);
+  forms.sample(4, 1.7);
+  const source = forms.positions.slice(), sourceColours = forms.colours.slice();
+  forms.select('orbit', 4); forms.begin(forms.positions, forms.colours, 4, 1.7);
+  forms.sample(4, 1.7);
+  assert.deepEqual(forms.positions, source, 'the inward journey starts on the displayed jellyfish');
+  assert.deepEqual(forms.colours, sourceColours);
+  forms.sample(4.9, 1.7);
+  assert.ok(radius(forms.positions) < radius(source) * .15, 'particles visibly converge near the origin');
+  assert.ok(forms.positions.every(Number.isFinite));
+  const gathered = forms.positions.slice(), gatheredColours = forms.colours.slice();
+  forms.sample(6, 1.7);
+  const orbit = createOrbital(6000); orbit.update(6);
+  sameParticles(forms.positions, orbit.positions);
+  sameParticles(forms.colours, orbit.colours);
+  forms.sample(4.9, 1.7);
+  forms.select('face', 4.9); forms.begin(forms.positions, forms.colours, 4.9, 1.7);
+  forms.sample(4.9, 1.7, face.positions, face.colours);
+  assert.deepEqual(forms.positions, gathered);
+  assert.deepEqual(forms.colours, gatheredColours);
+  forms.sample(7, 1.7, face.positions, face.colours);
+  assert.deepEqual(forms.positions.subarray(0, face.positions.length), face.positions);
+  assert.ok(forms.colours.subarray(face.colours.length).every(value => value === 0));
+  assert.equal(forms.finish(), true);
+});

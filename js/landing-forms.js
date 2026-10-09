@@ -17,7 +17,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     throw new RangeError('Particle counts must be positive integers.');
   }
   const count = Math.max(faceCount, idleCount), length = count * 3;
-  let ready = false, pending = false, active = false, selected = 'nebula', settled = 'nebula';
+  let ready = false, pending = false, active = false, selected = 'nebula', settled = 'nebula', sourceMode = 'nebula';
   let positions, colours, targetPositions, targetColours, sizes, orbit, jelly, motion;
   let orbitMorph, jellyMorph, morph, jellyEpoch = 0, aspect = 1;
   const outlet = new Float32Array([.95, 1.25, .2]);
@@ -56,6 +56,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     if (!validModes.has(mode)) throw new RangeError(`Unknown landing form: ${mode}`);
     if (mode === selected) return;
     if (isIdle(mode)) prepare();
+    sourceMode = selected;
     selected = mode;
     if (isIdle(mode)) {
       if (mode === 'jelly') jellyEpoch = Number.isFinite(clock) ? clock : 0;
@@ -85,7 +86,8 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     updateTarget(clock, nextAspect);
     morph = selected === 'jelly' ? jellyMorph : isIdle(selected) ? orbitMorph : morph || orbitMorph;
     morph.begin(positions, colours, clock, {
-      reverse: !isIdle(selected), outlet, inlet: motion.inlet
+      reverse: !isIdle(selected), gather: sourceMode === 'jelly' && selected === 'orbit',
+      outlet, inlet: motion.inlet
     });
     pending = false; active = true;
   }

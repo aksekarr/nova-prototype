@@ -4,7 +4,7 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
   setReplyText = () => {}, onChange = () => {}, formationMs = 3000 }) {
   const CANCELLED = Symbol('cancelled');
   let active = null, disposed = false, formationTarget = null, frame = 0;
-  let form = 'nebula', hasMet = false, nextSurprise = 'orbit';
+  let form = 'nebula', hasMet = false;
   let snapshot = { phase: 'arrival', form, busy: false, speaking: false, error: null };
   let resolveDisposed;
   const disposedPromise = new Promise(resolve => { resolveDisposed = resolve; });
@@ -163,7 +163,6 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
     }
     formationTarget = null;
     hasMet = false;
-    nextSurprise = 'orbit';
     publish('arrival');
   }
 
@@ -182,10 +181,7 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
     surprise() {
       if (disposed) return Promise.resolve({ status: 'disposed' });
       if (snapshot.phase !== 'present') return Promise.resolve({ status: 'ignored' });
-      const requested = nextSurprise;
-      const result = changeForm(requested);
-      if (form === requested) nextSurprise = requested === 'orbit' ? 'jelly' : 'orbit';
-      return result;
+      return changeForm(form === 'face' ? 'jelly' : form === 'jelly' ? 'orbit' : 'face');
     },
     showFace() {
       if (disposed) return Promise.resolve({ status: 'disposed' });

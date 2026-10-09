@@ -253,12 +253,12 @@ test('Surprise Me is unavailable before meeting or during a greeting', async () 
   speech.resolve({ status: 'completed' }); await entry;
 });
 
-test('Surprise Me alternates atom and jellyfish and settles only after the renderer completes', async () => {
+test('Surprise Me cycles face to jellyfish to atom to face and settles only after the renderer completes', async () => {
   let transitioning = false;
   const h = setup({}, { isTransitioning: () => transitioning });
   await meet(h);
   const callCount = h.calls.length;
-  for (const expected of ['orbit', 'jelly', 'orbit']) {
+  for (const expected of ['jelly', 'orbit', 'face', 'jelly']) {
     transitioning = true;
     const change = h.flow.surprise();
     assert.deepEqual(h.flow.state, { phase: 'changing-form', form: expected, busy: true, speaking: false, error: null });
@@ -303,7 +303,7 @@ test('Show Seni reverses an in-flight change silently and invalidates its late c
   assert.equal(h.speaks().length, spokenCount);
   assert.deepEqual(await h.flow.showFace(), { status: 'completed' });
   const next = h.flow.surprise(); h.advance(0); await next;
-  assert.equal(h.flow.state.form, 'jelly', 'returning to the face preserves the cycle');
+  assert.equal(h.flow.state.form, 'jelly', 'every return to the face starts with jellyfish');
 });
 
 test('replay from an alternate form activates immediately and waits for the face morph', async () => {
@@ -356,15 +356,15 @@ test('returning to the nebula cancels an in-flight form change and resets the cy
   assert.equal(h.flow.phase, 'arrival');
   await meet(h);
   const next = h.flow.surprise(); h.advance(0); await next;
-  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.state.form, 'jelly');
 });
 
 test('a failed form selection retains the current presence and retries the same form', async () => {
-  let failOrbit = true;
+  let failJelly = true;
   const selected = [];
   const h = setup({}, { setMode(mode) {
     selected.push(mode);
-    if (mode === 'orbit' && failOrbit) throw new Error('private asset path');
+    if (mode === 'jelly' && failJelly) throw new Error('private asset path');
     return true;
   } });
   await meet(h);
@@ -374,11 +374,11 @@ test('a failed form selection retains the current presence and retries the same 
   assert.equal(h.flow.state.busy, false);
   assert.match(h.flow.state.error, /try again/i);
   assert.ok(!h.flow.state.error.includes('private'));
-  failOrbit = false;
+  failJelly = false;
   const next = h.flow.surprise(); h.advance(0); await next;
-  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.state.form, 'jelly');
   assert.equal(h.flow.state.error, null);
-  assert.deepEqual(selected, ['face', 'orbit', 'orbit']);
+  assert.deepEqual(selected, ['face', 'jelly', 'jelly']);
 });
 
 test('a failed Show Seni selection leaves the active form transition owned and able to settle', async () => {
@@ -390,13 +390,13 @@ test('a failed Show Seni selection leaves the active form transition owned and a
   const surprise = h.flow.surprise();
   failFace = true;
   assert.deepEqual(await h.flow.showFace(), { status: 'unavailable' });
-  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.state.form, 'jelly');
   assert.equal(h.flow.phase, 'changing-form');
   transitioning = false;
   h.advance(0);
   assert.deepEqual(await surprise, { status: 'completed' });
   assert.equal(h.flow.phase, 'present');
-  assert.equal(h.flow.state.form, 'orbit');
+  assert.equal(h.flow.state.form, 'jelly');
 });
 
 test('failed replay audio keeps a known presence and finishes its face transition safely', async () => {
@@ -430,4 +430,18 @@ test('dispose cancels changing forms and rejects further form activity', async (
   h.advance(50); await flush();
   assert.equal(h.calls.length, count);
   assert.equal(h.flow.phase, 'arrival');
+});
+
+
+test('Back to Seni from the atom restarts Surprise Me with jellyfish', async () => {
+  const h = setup();
+  await meet(h);
+  for (const expected of ['jelly', 'orbit']) {
+    const change = h.flow.surprise(); h.advance(0); await change;
+    assert.equal(h.flow.state.form, expected);
+  }
+  const back = h.flow.showFace(); h.advance(0); await back;
+  const next = h.flow.surprise(); h.advance(0); await next;
+  assert.equal(h.flow.state.form, 'jelly');
+  assert.equal(h.speaks().length, 1, 'exploring and returning never replay the introduction');
 });

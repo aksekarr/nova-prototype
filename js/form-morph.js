@@ -95,14 +95,15 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
     speedPower[i] = 2.6 + 2.8 * (.65 * variation + .35 * field);
   }
 
-  let started = false, startTime = 0, progress = 0, reverseTarget = false;
-  function begin(sourcePositions, sourceColours, clock, { reverse = false } = {}) {
+  let started = false, startTime = 0, progress = 0, reverseTarget = false, centreGather = false;
+  function begin(sourcePositions, sourceColours, clock, { reverse = false, gather = false } = {}) {
     checkPool(sourcePositions, length); checkPool(sourceColours, length);
     // Snapshot first: callers may pass our own output when interrupting a move.
     startPositions.set(sourcePositions); startColours.set(sourceColours);
     positions.set(startPositions); colours.set(startColours);
     startTime = Number.isFinite(clock) ? clock : 0;
     started = true; progress = 0; reverseTarget = reverse;
+    centreGather = gather && !reverse && !reduce;
     return api;
   }
 
@@ -131,10 +132,21 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
       // Immediate travel, followed by a soft landing. The bounded excursion
       // vanishes at both endpoints; no detached cloud or blank replacement.
       const excursion = reduce ? 0 : 16 * ease * ease * (1 - ease) * (1 - ease);
+      // The jellyfish rushes into the atom's origin before its rings unfold.
+      // Overlapping arrival/release times keep a lit flow through the centre.
+      let pull = ease, release = ease, curl = excursion;
+      if (centreGather) {
+        const stagger = (speedPower[i] - 2.6) / 2.8;
+        pull = 1 - Math.pow(1 - Math.min(1, u / (.5 + .13 * stagger)), 3);
+        const releaseStart = .34 + .1 * stagger;
+        const time = Math.max(0, (u - releaseStart) / (1 - releaseStart));
+        release = time ** 3 * (10 + time * (-15 + time * 6));
+        curl = .12 * 4 * pull * (1 - pull);
+      }
       for (let c = 0; c < 3; c++) {
-        positions[j + c] = startPositions[j + c]
-          + (targetPositions[destination + c] - startPositions[j + c]) * ease
-          + arcs[j + c] * excursion;
+        positions[j + c] = centreGather
+          ? startPositions[j + c] * (1 - pull) + targetPositions[destination + c] * release + arcs[j + c] * curl
+          : startPositions[j + c] + (targetPositions[destination + c] - startPositions[j + c]) * ease + arcs[j + c] * excursion;
         colours[j + c] = startColours[j + c]
           + (targetColours[destination + c] - startColours[j + c]) * ease;
       }
