@@ -10,8 +10,9 @@ Serve the static files with `python3 -m http.server 4173`, then open `http://loc
 
 The main page is the voice landing experience, with **Meet Seni**, sound,
 replay and return controls. After the introduction, **Surprise me** cycles
-**Seni → Jellyfish → Atom → Seni**. The jellyfish gathers into the centre before
-the atom's rings unfold. **Back to Seni** returns silently to
+**Seni → Jellyfish → Atom → Lotus → Seni**. The jellyfish gathers into the centre
+before the atom's rings unfold. The atom spirals inward into a closed lotus bud,
+pauses, then blooms into layered petals. **Back to Seni** returns silently to
 her face, including during a transition. It never asks for microphone access,
 and speech text is not displayed. Chat is reserved for a later build.
 
@@ -36,7 +37,7 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 - `nebula.html`: compare Original / Enhanced illumination on the same nebula, plus a Face control. The existing particle distribution, motion and base palette are preserved. Enhanced adds travelling colour, gentle nucleus pulses and sparse branching arcs with local cloud illumination. Desktop defaults to the same 32,000 particles as the main scene (9,000 on small screens); `?n=` overrides the count. Reduced motion keeps a static colour lift and suppresses pulses/arcs. The main scene uses the enhancement too; `?nebula=original` retains the original rendering.
 
-- `lotus.html`: separate 48,000-particle Celestial Lotus study. A closed bud opens into layered, breathing petals with drifting edge filaments, an upward centre stream, occasional fast petal-edge traces and pollen; **Bloom again** repeats the opening. Reduced motion shows the open flower at rest. Accepts `?n=…`.
+- `lotus.html`: standalone 48,000-particle Celestial Lotus study of the flower used in Surprise Me. A closed bud opens into layered, breathing petals with drifting edge filaments, an upward centre stream, occasional fast petal-edge traces and pollen; **Bloom again** repeats the opening. Reduced motion shows the open flower at rest. Accepts `?n=…`.
 - `jelly.html`: 48,000-particle jellyfish study. The face feeds a single upper-right stream while the bell forms; the bell then leads along a curved path, with trailing ribbons following its route and gentle lengthwise contractions. Explicit Face / Jellyfish controls only, with a direct reduced-motion alternative.
 - `orbit.html`: standalone orbital form for future text chat, with 48,000 particles by default.
 - `morph.html`: explicit **Face / Orbit** visual study. A fixed particle mapping preserves all 48,000 identities through an immediate gathering motion that fully settles in two seconds, including interrupted returns. Reduced motion uses a short direct interpolation. This page has no voice connection or idle timer. All form studies accept `?n=…`.

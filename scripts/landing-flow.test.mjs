@@ -253,12 +253,12 @@ test('Surprise Me is unavailable before meeting or during a greeting', async () 
   speech.resolve({ status: 'completed' }); await entry;
 });
 
-test('Surprise Me cycles face to jellyfish to atom to face and settles only after the renderer completes', async () => {
+test('Surprise Me cycles face to jellyfish to atom to lotus to face and settles only after the renderer completes', async () => {
   let transitioning = false;
   const h = setup({}, { isTransitioning: () => transitioning });
   await meet(h);
   const callCount = h.calls.length;
-  for (const expected of ['jelly', 'orbit', 'face', 'jelly']) {
+  for (const expected of ['jelly', 'orbit', 'lotus', 'face', 'jelly']) {
     transitioning = true;
     const change = h.flow.surprise();
     assert.deepEqual(h.flow.state, { phase: 'changing-form', form: expected, busy: true, speaking: false, error: null });
@@ -306,24 +306,30 @@ test('Show Seni reverses an in-flight change silently and invalidates its late c
   assert.equal(h.flow.state.form, 'jelly', 'every return to the face starts with jellyfish');
 });
 
-test('replay from an alternate form activates immediately and waits for the face morph', async () => {
-  let transitioning = false;
-  const h = setup({}, { isTransitioning: () => transitioning });
-  await meet(h);
-  const surprise = h.flow.surprise(); h.advance(0); await surprise;
-  transitioning = true;
-  const callsBefore = h.calls.length;
-  const replay = h.flow.repeatGreeting();
-  assert.equal(h.calls[callsBefore][0], 'activate');
-  assert.equal(h.flow.state.form, 'face');
-  assert.equal(h.flow.phase, 'changing-form');
-  h.advance(20); await flush();
-  assert.equal(h.speaks().length, 1);
-  transitioning = false;
-  h.advance(0); await replay;
-  assert.equal(h.speaks().length, 2);
-  assert.equal(h.flow.phase, 'present');
-});
+for (const target of ['jelly', 'orbit', 'lotus']) {
+  test(`replay from ${target} activates immediately and waits for the face morph`, async () => {
+    let transitioning = false;
+    const h = setup({}, { isTransitioning: () => transitioning });
+    await meet(h);
+    for (const expected of ['jelly', 'orbit', 'lotus']) {
+      const surprise = h.flow.surprise(); h.advance(0); await surprise;
+      assert.equal(h.flow.state.form, expected);
+      if (expected === target) break;
+    }
+    transitioning = true;
+    const callsBefore = h.calls.length;
+    const replay = h.flow.repeatGreeting();
+    assert.equal(h.calls[callsBefore][0], 'activate');
+    assert.equal(h.flow.state.form, 'face');
+    assert.equal(h.flow.phase, 'changing-form');
+    h.advance(20); await flush();
+    assert.equal(h.speaks().length, 1);
+    transitioning = false;
+    h.advance(0); await replay;
+    assert.equal(h.speaks().length, 2);
+    assert.equal(h.flow.phase, 'present');
+  });
+}
 
 test('replay can replace an in-flight form change without its old completion winning', async () => {
   let transitioning = false;
@@ -433,15 +439,43 @@ test('dispose cancels changing forms and rejects further form activity', async (
 });
 
 
-test('Back to Seni from the atom restarts Surprise Me with jellyfish', async () => {
-  const h = setup();
+for (const target of ['orbit', 'lotus']) {
+  test(`Back to Seni from ${target} restarts Surprise Me with jellyfish`, async () => {
+    const h = setup();
+    await meet(h);
+    for (const expected of ['jelly', 'orbit', 'lotus']) {
+      const change = h.flow.surprise(); h.advance(0); await change;
+      assert.equal(h.flow.state.form, expected);
+      if (expected === target) break;
+    }
+    const back = h.flow.showFace(); h.advance(0); await back;
+    const next = h.flow.surprise(); h.advance(0); await next;
+    assert.equal(h.flow.state.form, 'jelly');
+    assert.equal(h.speaks().length, 1, 'exploring and returning never replay the introduction');
+  });
+}
+
+test('Back to Seni interrupts the lotus bloom and never allows its old wait to settle the return', async () => {
+  let transitioning = false;
+  const h = setup({}, { isTransitioning: () => transitioning });
   await meet(h);
-  for (const expected of ['jelly', 'orbit']) {
+  for (const form of ['jelly', 'orbit']) {
     const change = h.flow.surprise(); h.advance(0); await change;
-    assert.equal(h.flow.state.form, expected);
+    assert.equal(h.flow.state.form, form);
   }
-  const back = h.flow.showFace(); h.advance(0); await back;
-  const next = h.flow.surprise(); h.advance(0); await next;
-  assert.equal(h.flow.state.form, 'jelly');
-  assert.equal(h.speaks().length, 1, 'exploring and returning never replay the introduction');
+  transitioning = true;
+  const lotus = h.flow.surprise();
+  h.advance(5); await flush();
+  assert.equal(h.flow.state.form, 'lotus');
+  assert.equal(h.flow.state.busy, true, 'the bloom remains part of the visual transition');
+  const back = h.flow.showFace();
+  assert.deepEqual(await lotus, { status: 'stopped' });
+  h.advance(5); await flush();
+  assert.equal(h.flow.state.form, 'face');
+  assert.equal(h.flow.phase, 'changing-form', 'only the new face transition can release its wait');
+  transitioning = false;
+  h.advance(0);
+  assert.deepEqual(await back, { status: 'completed' });
+  assert.equal(h.flow.phase, 'present');
+  assert.equal(h.speaks().length, 1);
 });

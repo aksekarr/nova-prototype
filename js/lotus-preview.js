@@ -1,4 +1,4 @@
-// Separate visual study; the landing's approved Surprise Me cycle stays intact.
+// Standalone study of the Lotus used in the landing's Surprise Me cycle.
 import { createShapes } from './shapes.js';
 import { createLotus } from './lotus.js';
 import { startStage } from './stage.js';

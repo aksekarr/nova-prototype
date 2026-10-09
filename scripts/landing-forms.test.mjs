@@ -5,6 +5,7 @@ import { createOrbital } from '../js/orbital.js';
 import { createShapes } from '../js/shapes.js';
 import { createJellyfish } from '../js/jellyfish.js';
 import { createJellyMotion } from '../js/jelly-motion.js';
+import { createLotus } from '../js/lotus.js';
 
 function facePool(count) {
   const positions = new Float32Array(count * 3), colours = new Float32Array(count * 3);
@@ -132,7 +133,7 @@ test('settled jelly continues swimming and resize/reversal keep every coordinate
 
 test('reduced motion shortens transitions and freezes each settled form', () => {
   const face = facePool(4000), forms = createLandingForms({ shapes: face, reduce: true, idleCount: 4000 });
-  for (const [mode, clock] of [['orbit', 1], ['jelly', 10]]) {
+  for (const [mode, clock] of [['orbit', 1], ['jelly', 10], ['lotus', 20]]) {
     forms.select(mode, clock);
     forms.begin(mode === 'orbit' ? face.positions : forms.positions,
       mode === 'orbit' ? face.colours : forms.colours, clock, 1);
@@ -187,4 +188,86 @@ test('jellyfish gathers into the atom centre, keeps every grain and can reverse 
   assert.deepEqual(forms.positions.subarray(0, face.positions.length), face.positions);
   assert.ok(forms.colours.subarray(face.colours.length).every(value => value === 0));
   assert.equal(forms.finish(), true);
+});
+
+
+test('48K atom winds into a closed lotus, waits through the breath and bloom, then stays alive', () => {
+  const face = facePool(32000), forms = createLandingForms({ shapes: face });
+  forms.select('orbit', 1); forms.begin(face.positions, face.colours, 1, 1.7);
+  forms.sample(4, 1.7);
+  const atomPositions = forms.positions.slice(), atomColours = forms.colours.slice();
+  forms.select('lotus', 4.01); forms.begin(forms.positions, forms.colours, 4.01, 1.7);
+  forms.sample(4.01, 1.7);
+  assert.deepEqual(forms.positions, atomPositions);
+  assert.deepEqual(forms.colours, atomColours);
+  const epoch = 4.01 + 2.2 + .18;
+  const lotus = createLotus(48000); lotus.replay(epoch);
+  for (const clock of [epoch - .17, epoch - .01, epoch]) {
+    forms.sample(clock, 1.7);
+    sameParticles(forms.positions, lotus.positions);
+    sameParticles(forms.colours, lotus.colours);
+    assert.equal(forms.transitioning, true, 'reaching the closed bud does not finish the bloom');
+  }
+  for (const age of [1, 6, 7.2, 12]) {
+    const clock = epoch + age;
+    lotus.update(clock); forms.sample(clock, 1.7);
+    sameParticles(forms.positions, lotus.positions);
+    sameParticles(forms.colours, lotus.colours);
+    assert.equal(forms.transitioning, age < 7.2);
+  }
+  assert.equal(forms.settledMode, 'lotus');
+  assert.equal(forms.finish(), false);
+  assert.equal(forms.count, 48000);
+});
+
+test('lotus winding and blooming can both return continuously to the exact face while extras fade', () => {
+  for (const age of [1.1, 5.5]) {
+    const face = facePool(4000), original = face.positions.slice();
+    const forms = createLandingForms({ shapes: face, idleCount: 6000 });
+    forms.select('orbit', 1); forms.begin(face.positions, face.colours, 1, 1.7);
+    forms.sample(4, 1.7);
+    forms.select('lotus', 4); forms.begin(forms.positions, forms.colours, 4, 1.7);
+    forms.sample(4 + age, .4);
+    const interrupted = forms.positions.slice(), colours = forms.colours.slice();
+    forms.sample(18, 2.3);
+    forms.sample(4 + age, .4);
+    assert.deepEqual(forms.positions, interrupted, 'seeking the transition does not change its path');
+    assert.deepEqual(forms.colours, colours);
+    assert.ok(Number.isFinite(forms.cameraDepth(.4, .46)));
+    forms.select('face', 4 + age);
+    forms.begin(forms.positions, forms.colours, 4 + age, .4);
+    forms.sample(4 + age, .4, face.positions, face.colours);
+    assert.deepEqual(forms.positions, interrupted);
+    assert.deepEqual(forms.colours, colours);
+    forms.sample(7 + age, 2.3, face.positions, face.colours);
+    assert.deepEqual(forms.positions.subarray(0, face.positions.length), face.positions);
+    assert.deepEqual(forms.colours.subarray(0, face.colours.length), face.colours);
+    assert.ok(forms.colours.subarray(face.colours.length).every(value => value === 0));
+    assert.deepEqual(face.positions, original);
+    assert.equal(forms.finish(), true);
+  }
+});
+
+test('a repeat atom-to-lotus visit resets its bloom clock and resize keeps the same pool', () => {
+  const face = facePool(4000), forms = createLandingForms({ shapes: face, idleCount: 6000 });
+  forms.prepare();
+  const positions = forms.positions, colours = forms.colours;
+  const bud = createLotus(6000);
+  for (const start of [1, 20]) {
+    forms.select('orbit', start);
+    forms.begin(start === 1 ? face.positions : forms.positions, start === 1 ? face.colours : forms.colours, start, 1.7);
+    forms.sample(start + 3, 1.7);
+    forms.select('lotus', start + 3); forms.begin(forms.positions, forms.colours, start + 3, 1.7);
+    forms.sample(start + 5.3, .4);
+    sameParticles(forms.positions, bud.positions);
+    assert.equal(forms.transitioning, true, 'each visit holds a fresh closed bud');
+    const narrow = forms.cameraDepth(.4, .46), wide = forms.cameraDepth(2.3, .46);
+    assert.ok(Number.isFinite(narrow) && narrow > wide, 'portrait framing fits the full flower');
+    forms.sample(start + 14, 2.3);
+    assert.equal(forms.transitioning, false);
+    assert.equal(forms.settledMode, 'lotus');
+    assert.ok(forms.positions.every(Number.isFinite));
+    assert.equal(forms.positions, positions);
+    assert.equal(forms.colours, colours);
+  }
 });

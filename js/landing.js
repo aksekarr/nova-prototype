@@ -1,5 +1,11 @@
 import { resolveLandingRoute } from './landing-route.js';
 
+const FORM_LABELS = {
+  orbit: { name: 'Atom', description: 'an atom' },
+  jelly: { name: 'Jellyfish', description: 'a jellyfish' },
+  lotus: { name: 'Celestial Lotus', description: 'a celestial lotus' }
+};
+
 // Legacy studies own their own stage. Route before loading the landing engine.
 const redirect = resolveLandingRoute(window.location.href);
 if (redirect) window.location.replace(redirect);
@@ -69,12 +75,13 @@ async function startLanding() {
       const present = phase === 'present';
       const changing = phase === 'changing-form';
       const exploring = present || changing;
-      const alternate = form === 'orbit' || form === 'jelly';
-      const formName = form === 'orbit' ? 'Atom' : 'Jellyfish';
+      const formLabel = FORM_LABELS[form];
+      const alternate = Boolean(formLabel);
+      const formName = formLabel?.name;
       document.body.dataset.phase = phase;
       document.body.dataset.form = form;
       el.stage.setAttribute('aria-label', entry ? 'A living nebula of light' : alternate
-        ? `Seni's particles ${changing ? 'becoming' : 'forming'} ${form === 'orbit' ? 'an atom' : 'a jellyfish'}` : "Seni's face, made of light particles");
+        ? `Seni's particles ${changing ? 'becoming' : 'forming'} ${formLabel.description}` : "Seni's face, made of light particles");
       el.arrival.hidden = !entry;
       el.meet.disabled = busy;
       el['meet-label'].textContent = error ? 'Try again' : 'Meet Seni';

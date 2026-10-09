@@ -4,9 +4,11 @@ import { createJellyfish } from './jellyfish.js';
 import { createJellyMotion } from './jelly-motion.js';
 import { createFormMorph } from './form-morph.js';
 import { createStreamMorph } from './stream-morph.js';
+import { createLotus } from './lotus.js';
+import { createLotusMorph } from './lotus-morph.js';
 
-const isIdle = mode => mode === 'orbit' || mode === 'jelly';
-const validModes = new Set(['nebula', 'face', 'orbit', 'jelly']);
+const isIdle = mode => mode === 'orbit' || mode === 'jelly' || mode === 'lotus';
+const validModes = new Set(['nebula', 'face', 'orbit', 'jelly', 'lotus']);
 
 // The landing's face pool keeps its original density. A separate display pool
 // admits the extra idle grains as dark duplicates, then gives every grain one
@@ -18,8 +20,8 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
   }
   const count = Math.max(faceCount, idleCount), length = count * 3;
   let ready = false, pending = false, active = false, selected = 'nebula', settled = 'nebula', sourceMode = 'nebula';
-  let positions, colours, targetPositions, targetColours, sizes, orbit, jelly, motion;
-  let orbitMorph, jellyMorph, morph, jellyEpoch = 0, aspect = 1;
+  let positions, colours, targetPositions, targetColours, sizes, orbit, jelly, lotus, motion;
+  let orbitMorph, jellyMorph, lotusMorph, morph, jellyEpoch = 0, aspect = 1;
   const outlet = new Float32Array([.95, 1.25, .2]);
 
   function extend(source, destination, colour = false) {
@@ -45,10 +47,12 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     sizes = createShapes(count).SIZE;
     orbit = createOrbital(count, reduce);
     jelly = createJellyfish(count, reduce);
+    lotus = createLotus(count, reduce);
     motion = createJellyMotion(reduce);
     motion.apply(jelly.positions, 0, aspect);
     orbitMorph = createFormMorph(positions, orbit.positions, { reduce });
     jellyMorph = createStreamMorph(positions, jelly.positions, { reduce });
+    lotusMorph = createLotusMorph(positions, lotus.positions, { reduce });
     ready = true;
   }
 
@@ -68,6 +72,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
   function updateTarget(clock, nextAspect) {
     aspect = nextAspect;
     if (selected === 'orbit') orbit.update(clock);
+    else if (selected === 'lotus') lotus.update(clock);
     else if (selected === 'jelly') {
       const time = Math.max(0, clock - jellyEpoch);
       jelly.update(time);
@@ -83,11 +88,16 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     extend(sourcePositions, targetPositions);
     extend(sourceColours, targetColours, true);
     positions.set(targetPositions); colours.set(targetColours);
+    const fromAtom = sourceMode === 'orbit' && settled === 'orbit' && !morph?.active;
+    // Hold a closed bud through gathering and a small breath before opening.
+    if (selected === 'lotus') lotus.replay(clock + lotusMorph.duration + .18);
     updateTarget(clock, nextAspect);
-    morph = selected === 'jelly' ? jellyMorph : isIdle(selected) ? orbitMorph : morph || orbitMorph;
+    morph = selected === 'jelly' ? jellyMorph : selected === 'lotus' ? lotusMorph
+      : isIdle(selected) ? orbitMorph : morph || orbitMorph;
     morph.begin(positions, colours, clock, {
       reverse: !isIdle(selected), gather: sourceMode === 'jelly' && selected === 'orbit',
-      outlet, inlet: motion.inlet
+      outlet, inlet: motion.inlet,
+      orbit: selected === 'lotus' && fromAtom ? orbit : null, sourceMapping: orbitMorph.mapping
     });
     pending = false; active = true;
   }
@@ -95,7 +105,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
   function sample(clock, nextAspect, normalPositions, normalColours) {
     if (!active) return;
     updateTarget(clock, nextAspect);
-    const target = selected === 'orbit' ? orbit : selected === 'jelly' ? jelly : null;
+    const target = selected === 'orbit' ? orbit : selected === 'jelly' ? jelly : selected === 'lotus' ? lotus : null;
     if (target) morph.sample(clock, target.positions, target.colours);
     else {
       extend(normalPositions, targetPositions);
@@ -103,7 +113,11 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
       morph.sample(clock, targetPositions, targetColours);
     }
     positions.set(morph.positions); colours.set(morph.colours);
-    if (!morph.active) settled = selected;
+    if (!morph.active && !blooming()) settled = selected;
+  }
+
+  function blooming() {
+    return selected === 'lotus' && !reduce && lotus.openness < .999;
   }
 
   function finish() {
@@ -117,7 +131,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     get ready() { return ready; },
     get active() { return active; },
     get pending() { return pending; },
-    get transitioning() { return pending || (active && Boolean(morph?.active)); },
+    get transitioning() { return pending || (active && (Boolean(morph?.active) || blooming())); },
     get settledMode() { return settled; },
     get mode() { return selected; },
     get positions() { return positions; },
@@ -128,7 +142,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
     cameraDepth(nextAspect, slope) {
       if (selected === 'jelly') return motion.cameraDepth(nextAspect, slope);
       const fit = slope * Math.min(.84, nextAspect * .84);
-      return orbit.bounds.radius * Math.sqrt(1 + 1 / (fit * fit));
+      return (selected === 'lotus' ? lotus : orbit).bounds.radius * Math.sqrt(1 + 1 / (fit * fit));
     }
   };
 }

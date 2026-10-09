@@ -1,5 +1,7 @@
 // The local landing experience owns one cached greeting and the idle forms.
 // Rendering advances every visual wait; no microphone or live provider is used.
+const NEXT_FORM = { face: 'jelly', jelly: 'orbit', orbit: 'lotus', lotus: 'face' };
+
 export function createLandingFlow({ voice, setMode, getClock, isTransitioning = () => false,
   setReplyText = () => {}, onChange = () => {}, formationMs = 3000 }) {
   const CANCELLED = Symbol('cancelled');
@@ -85,7 +87,7 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
 
     token.done = (async () => {
       try {
-        const returningFromForm = form === 'orbit' || form === 'jelly';
+        const returningFromForm = form === 'orbit' || form === 'jelly' || form === 'lotus';
         selectForm('face');
         if (formationTarget === null) formationTarget = getClock() + formationMs / 1000;
         const forming = getClock() < formationTarget;
@@ -181,7 +183,7 @@ export function createLandingFlow({ voice, setMode, getClock, isTransitioning = 
     surprise() {
       if (disposed) return Promise.resolve({ status: 'disposed' });
       if (snapshot.phase !== 'present') return Promise.resolve({ status: 'ignored' });
-      return changeForm(form === 'face' ? 'jelly' : form === 'jelly' ? 'orbit' : 'face');
+      return changeForm(NEXT_FORM[form]);
     },
     showFace() {
       if (disposed) return Promise.resolve({ status: 'disposed' });
