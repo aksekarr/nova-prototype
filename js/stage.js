@@ -75,7 +75,7 @@ const TUNING = {
     chuckles: { kind: 'chuckle', pose: 'laugh', amount: 0.75 },
     sigh: { kind: 'sigh', pose: 'concern', amount: 0.8 },
     sighs: { kind: 'sigh', pose: 'concern', amount: 0.8 },
-    curious: { kind: 'mood', pose: 'surprised', amount: 0.6 },
+    curious: { kind: 'mood', pose: 'focused', amount: 0.85 },
     thoughtful: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     thinking: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     cheerful: { kind: 'mood', pose: 'content', amount: 1 },
@@ -130,6 +130,12 @@ const TUNING = {
       lowerLid: 0.35, slant: 0, browKnit: 0.8, browAngle: 0, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0.5, squashStretch: 0, headYaw: 0,
       headPitch: -2, headRoll: 0, gazeX: 0, gazeY: -0.15
+    },
+    focused: {
+      smile: 0, browL: -0.4, browR: -0.4, tilt: 0, upperLid: 0.3,
+      lowerLid: 0.3, slant: 0, browKnit: 0.85, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: -0.8, headRoll: 0, gazeX: 0, gazeY: 0
     },
     surprised: {
       smile: 0, browL: 0.8, browR: 0.8, tilt: 0, upperLid: -1,
