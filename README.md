@@ -97,6 +97,16 @@ The movement preview also has silent **Sighs**, **Confidently**, **Warmly**,
 tag expressions with their previous mappings; switch it off and replay a tag.
 These are synthetic alignment cues, not generated audio or a live connection.
 
+The eye comparison in `movement.html` offers **Current eyes**, **Soft and settled**
+and **Open and attentive**. **Eye moments** adds coordinated form/hold/release
+shapes, sustained listening engagement and spaced playback-timed phrase accents;
+switch it off to compare the foundations alone. The new eye layer is preview-only
+until a foundation is chosen: normal conversation keeps Current eyes. It blends
+only displayed lids and brows, uses the same aperture/light sampler and leaves
+mouth, gaze, blink, head/body motion and particle buffers unchanged. Strong audio
+tag expressions and manual poses take priority. Audio gaps freeze the layer;
+reduced motion retains the foundation and omits the new automatic eye moments.
+
 During conversation, **Curious** uses a focused expression with knitted, lowered
 brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
 **Confidently** now uses composed lids, level brows and a restrained smile instead

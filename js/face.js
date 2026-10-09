@@ -2,6 +2,7 @@ import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 import { createFaceForm } from './face-form.js';
+import { createEyeAttitudes, EYE_ATTITUDE_KEYS } from './face-eyes.js';
 import { createSpeechFlow } from './speech-flow.js';
 import { SIGH_GESTURE, sampleSighGesture } from './face-sigh.js';
 
@@ -27,6 +28,7 @@ export function createFace(shapes, reduce) {
   const automatic = createCueExpressions();
   const flashes = createBrowFlashes();
   const micro = createMicroExpressions();
+  const eyes = createEyeAttitudes(reduce);
   let beats = [], phraseEvents = [], headTime = 0;
   let listeningSettings = {}, replyBlend = 0.4;
   let listeningWeight = 0, listeningTransition = null, listeningBridge = null;
@@ -44,7 +46,7 @@ export function createFace(shapes, reduce) {
   const diagnostics = { expression: cur, rendered, mouth: mouthInput, gaze,
     pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
     maxParameterStepKey: '', mapped: mappedFace.diagnostics,
-    browFlash: flashes.state, micro: micro.state, listening: listeningState,
+    browFlash: flashes.state, micro: micro.state, eyes: eyes.state, listening: listeningState,
     head: head.diagnostics, form: follow.diagnostics.form };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
@@ -152,6 +154,12 @@ export function createFace(shapes, reduce) {
     if (bridgeMix === 1) listeningBridge = null;
     const pose = head.update(dt, { speaking, envelope, bias: cur,
       listening: automaticEnabled && listening, inputVolume });
+    const eyeAttitude = eyes.update(step, { cues, enabled: automaticEnabled,
+      weights: blend.weights, listening: listeningWeight,
+      attention: head.diagnostics.attention, phraseEvents });
+    if (eyeAttitude.weight > 0) for (const key of EYE_ATTITUDE_KEYS) {
+      rendered[key] = lerp(rendered[key], eyeAttitude.pose[key] + (flash[key] || 0), eyeAttitude.weight);
+    }
     headTime += step;
     beats = head.consumeBeats().map(beat => ({ ...beat, replyId: activeReply,
       position: Math.max(0, (cues?.position ?? 0) - (headTime - beat.time)) }));
@@ -246,6 +254,7 @@ export function createFace(shapes, reduce) {
     automatic.applyTuning(tuning);
     flashes.applyTuning(tuning);
     micro.applyTuning(tuning);
+    eyes.applyTuning(tuning);
     if (tuning.listening) listeningSettings = tuning.listening;
     if (Number.isFinite(tuning.cueTiming?.replyBlend)) replyBlend = Math.max(0, tuning.cueTiming.replyBlend);
     // Legacy flat imports remain readable. Complete nested definitions are

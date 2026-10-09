@@ -15,6 +15,7 @@ const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
 let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
+let eyeStyle = 'relaxed', eyeMoments = true;
 let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
 const tagExamples = { chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
   confidently: 'confidently', warmly: 'warmly' };
@@ -48,7 +49,7 @@ startStage({
   applyFaceTuning(value) {
     tuning = value;
     face.applyTuning({ ...value, ...tagTuning(), formAmount: flowing ? 1 : 0,
-      speechFlowAmount: travelling ? 1 : 0 });
+      speechFlowAmount: travelling ? 1 : 0, eyeStyle, eyeMoments });
   },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
@@ -73,6 +74,7 @@ startStage({
       metrics.textContent = JSON.stringify({ mode, frames, nonfinite, reduced: reduce,
         accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
         head: face.diagnostics.head, form: face.diagnostics.form,
+        eyes: face.diagnostics.eyes,
         speechFlow: shapes.headDisplay.diagnostics.accent.flow,
         gesture: { kind: shapes.headDisplay.diagnostics.gesture.kind,
           value: shapes.headDisplay.diagnostics.gesture.value,
@@ -112,4 +114,13 @@ document.getElementById('speech-flow').onchange = event => {
 document.getElementById('tag-expressions').onchange = event => {
   updatedTags = event.target.checked;
   face.applyTuning(tagTuning());
+};
+
+document.getElementById('eye-style').onchange = event => {
+  eyeStyle = event.target.value;
+  face.applyTuning({ eyeStyle });
+};
+document.getElementById('eye-moments').onchange = event => {
+  eyeMoments = event.target.checked;
+  face.applyTuning({ eyeMoments });
 };
