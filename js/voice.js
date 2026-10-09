@@ -203,7 +203,9 @@ export function createVoice({ caption, readout }) {
   let reply = null;
   let soundOn = true;
   let envelope = 0;
-  const shape = { ...SHAPE_PRESETS.rest };
+  // Speech still uses the existing four-channel driver and its single smoother.
+  // The Mouth lab's additional channels are opt-in and never enter that driver.
+  const shape = { ...SHAPE_PRESETS.rest, cup: 0, square: 0, tuck: 0, oval: 0 };
   let idleStatus = 'Loading';
   let nextReplyId = 0;
   let lastEnd = null;

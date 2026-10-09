@@ -488,7 +488,7 @@ export function createFace(shapes, reduce) {
   const listeningState = { weight: 0, phase: 'off', eligible: false };
   const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
   const gaze = { x: 0, y: 0 };
-  const mouthShape = { w: 1, h: 1, round: 0, close: 0 };
+  const mouthShape = { w: 1, h: 1, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0 };
   const mouthInput = { envelope: 0, shape: mouthShape, smile: 0.05, speaking: false };
   let mouthBiasPhase = 1;
   let blinkAge = Infinity, blinkV = 1;
@@ -524,7 +524,7 @@ export function createFace(shapes, reduce) {
     refreshSelection();
   }
 
-  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false) {
+  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false, mouthPreview = null) {
     const newReply = cues?.replyId !== undefined && cues.replyId !== activeReply;
     if (newReply) {
       preview = false;
@@ -630,6 +630,10 @@ export function createFace(shapes, reduce) {
     mouthShape.h = shape.h;
     mouthShape.round = shape.round;
     mouthShape.close = shape.close;
+    mouthShape.cup = shape.cup ?? 0;
+    mouthShape.square = shape.square ?? 0;
+    mouthShape.tuck = shape.tuck ?? 0;
+    mouthShape.oval = shape.oval ?? 0;
     let mouthEnvelope = envelope;
     if (mouthBias === 1) {
       // Keep the settled silent pose's original arithmetic exactly.
@@ -644,6 +648,15 @@ export function createFace(shapes, reduce) {
       mouthShape.w *= 1 - cur.mouthRound * 0.38 * mouthBias;
       mouthShape.round += Math.max(0, cur.mouthRound - shape.round) * mouthBias;
       mouthShape.close += Math.max(0, cur.mouthPress - shape.close) * mouthBias;
+    }
+    // Preview affects only mouth sampling, after all existing pose and head
+    // calculations. Simulated loudness must never drive gestures or accents.
+    // Blend back to this resolved mouth input, including silent pose biases,
+    // so buffering or listening cannot reveal a pose in one frame at handoff.
+    const mouthOverride = mouthPreview?.sample(step, mouthEnvelope, mouthShape);
+    if (mouthOverride) {
+      Object.assign(mouthShape, mouthOverride.shape);
+      mouthEnvelope = mouthOverride.envelope;
     }
     mouthInput.envelope = mouthEnvelope;
     mouthInput.smile = rendered.smile;

@@ -266,12 +266,31 @@ export function createMappedFace(shapes, reduce) {
   }
 
   function updateWarp(expression, gaze, blink, envelope, shape) {
-    const aperture = mouthAperture(envelope, shape, mouthWarpStrength);
+    const baseAperture = mouthAperture(envelope, shape, mouthWarpStrength);
+    // These are geometric controls, not a second speech driver. A closure
+    // always wins; absent/zero controls take the original arithmetic path.
+    const unpressed = 1 - clamp(shape.close, 0, 1);
+    const cup = clamp(shape.cup ?? 0, 0, 1) * unpressed;
+    const square = clamp(shape.square ?? 0, 0, 1) * unpressed;
+    const tuck = clamp(shape.tuck ?? 0, 0, 1) * unpressed;
+    const oval = clamp(shape.oval ?? 0, 0, 1) * unpressed;
+    const sculpt = Math.max(cup, square, tuck, oval);
+    const contour = Math.max(cup, square, oval);
+    const aperture = sculpt ? Math.min(0.096, baseAperture * (1 + oval * 0.75 + cup * 0.8)
+      * (1 - square * 0.45) * (1 - tuck * 0.98)) : baseAperture;
     const mouthWidth = clamp(1 + (shape.w - 1 - shape.round * 0.035) * mouthWarpStrength
       + expression.smile * 0.05, 0.58, 1.3);
     const lipPress = 1 / (1 - shape.close * 0.18 * Math.min(mouthWarpStrength, 1.5)) - 1;
     const eyeOpen = clamp(expression.eye * Math.max(0, (blink - 0.08) / 0.92), 0.015, 1.12);
     const roundDepth = shape.round * mouthWarpStrength * 0.15;
+    const cornerPull = (cup * 0.56 + square * 0.30) * Math.min(mouthWarpStrength, 1.5);
+    const fullness = Math.min(0.34, (cup * 0.25 + square * 0.14) * mouthWarpStrength);
+    const openingWidth = Math.max(0.60 - square * 0.12,
+      1 - oval * 0.22 - cup * 0.30 - square * 0.48);
+    const upperShare = 0.32 + contour * 0.15;
+    const projection = (cup * 0.17 + square * 0.12) * mouthWarpStrength;
+    const contourShoulder = 0.12 * Math.sqrt(contour), contourPower = 0.65 - contour * 0.15;
+    const contourEdge = Math.pow(contourShoulder, contourPower);
     for (let i = 0; i < count; i++) {
       const j = i * 3, k = i * 8;
       const u = UV[i * 2], v = UV[i * 2 + 1];
@@ -281,18 +300,48 @@ export function createMappedFace(shapes, reduce) {
       if (mouthWeight > 0) {
         const localWidth = 1 + (mouthWidth - 1) * weights[k + 1];
         su = mouth[0] + inverseMouthX(u - mouth[0], localWidth, mouthHalf, mouthHalf + 0.07);
+        if (cornerPull) {
+          // Four small monotone horizontal flows pull the corners in more
+          // than the centre. Each flow vanishes before the cheek boundary;
+          // it cannot sample across that boundary into the background.
+          let x = su - mouth[0];
+          const band = falloff(v - mouth[1], 0.052, 0.16);
+          for (let step = 0; step < 4; step++) {
+            const corner = 0.25 + 0.75 * smooth(Math.abs(x) / mouthHalf);
+            x += cornerPull * 0.25 * x * corner
+              * falloff(x, mouthHalf * 0.8, mouthHalf + 0.07) * band;
+          }
+          su = mouth[0] + x;
+        }
         const seamIndex = clamp((su - seamStart) / (seamEnd - seamStart) * 128, 0, 127.9999);
         const n = seamIndex | 0, centre = seam[n] + (seam[n + 1] - seam[n]) * (seamIndex - n);
         const mouthX = (su - mouth[0]) / mouthHalf;
-        const arch = Math.pow(Math.max(0, 1 - mouthX * mouthX), 0.65);
+        let arch;
+        if (contour) {
+          const x = mouthX / openingWidth;
+          // A C1 shoulder rounds off the ellipse's infinite edge slope.
+          // Its size tends to zero with the controls, recovering the legacy
+          // arch continuously. The flat square centre keeps CH distinct.
+          const radial = Math.max(0, 1 - x * x), t = radial / contourShoulder;
+          const ellipse = radial >= contourShoulder ? Math.pow(radial, contourPower)
+            : contourEdge * t * t * (3 - contourPower + (contourPower - 2) * t);
+          const flat = falloff(x, 0.68, 1);
+          arch = ellipse + (flat - ellipse) * square;
+        } else arch = Math.pow(Math.max(0, 1 - mouthX * mouthX), 0.65);
         const smile = -expression.smile * 0.022 * Math.min(1, mouthX * mouthX)
           * (1 - shape.round * 0.65) * mouthWeight;
         // A little compression presses the photographed lip volume together
         // on m/b/p. Smile lifts the corners of the same source image.
         let relative = v - centre - smile;
         relative *= 1 + lipPress * mouthWeight;
-        const upper = aperture * 0.32 * arch;
-        const lower = aperture * 0.68 * arch;
+        if (tuck) {
+          // Inverse upward flow: only the lower lip rises towards the upper
+          // lip. Broad shoulders retain a strictly increasing vertical map.
+          relative += tuck * 0.024 * smooth((relative + 0.009) / 0.055)
+            * falloff(relative, 0.065, 0.15) * arch;
+        }
+        const upper = aperture * (contour ? upperShare : 0.32) * arch;
+        const lower = aperture * (contour ? 1 - upperShare : 0.68) * arch;
         const halfSeam = 0.0028;
         let sourceRelative;
         if (relative < -halfSeam - upper) {
@@ -305,6 +354,8 @@ export function createMappedFace(shapes, reduce) {
           sourceRelative = -halfSeam + (relative + halfSeam + upper)
             / (halfSeam * 2 + upper + lower) * halfSeam * 2;
         }
+        if (fullness) sourceRelative *= 1 - fullness
+          * falloff(sourceRelative, 0.038, 0.105) * arch;
         sv += (centre + sourceRelative - v) * mouthWeight;
         lipFocus = arch * mouthWeight
           * smooth((Math.abs(sourceRelative) - 0.001) / 0.012)
@@ -334,6 +385,8 @@ export function createMappedFace(shapes, reduce) {
       featureLight[f + 2] = lipFocus; featureLight[f + 3] = innerLight;
       featureLight[f + 4] = cavity;
       FACE[j + 2] = (MAP_DEPTH[i] - 0.5) * depthAmount + roundDepth * mouthWeight;
+      if (projection) FACE[j + 2] += projection * mouthWeight
+        * falloff(v - mouth[1], 0.045, 0.12);
     }
   }
 

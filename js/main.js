@@ -40,6 +40,7 @@ let liveSession = null;
 let liveSetupPending = false;
 let liveClientPromise = null;
 let liveControls = null;
+let mouthLab = null, mouthPlayback = null;
 const voice = createVoice({
   caption: el.caption,
   readout: el.voice
@@ -116,6 +117,10 @@ if (!faceMaps) restCaption(FACE_UNAVAILABLE);
 startStage({
   shapes, reduce, state,
   speechLab: {
+    connectMouthLab(lab) {
+      mouthLab = lab;
+      lab.setPlaybackActive(Boolean(mouthPlayback));
+    },
     play: playLabLine,
     simulate: simulateLabLine,
     loadCapture: async file => captureTools.parseCapture(await file.text()),
@@ -126,7 +131,7 @@ startStage({
     },
     references: {
       load: loadReferenceClips,
-      play(kind) { stopAll(); return playReferenceClip(kind); }
+      play(kind) { stopAll(); return withMouthPlayback(() => playReferenceClip(kind)); }
     }
   },
   applyFaceTuning: face.applyTuning,
@@ -146,15 +151,35 @@ startStage({
     }
   },
   updateFace: (dt, clock) => {
-    face.update(dt, clock, voice.currentCues(), voice.currentEnvelope(), voice.currentShape(),
+    const envelope = voice.currentEnvelope(), shape = voice.currentShape();
+    face.update(dt, clock, voice.currentCues(), envelope, shape,
       state.speaking, voice.lastReplyEnd(), previewListening
-        || Boolean(liveSession?.connected && liveSession.listening));
+        || Boolean(liveSession?.connected && liveSession.listening),
+      mouthLab);
   }
 });
 
 // Each new interaction invalidates the pending steps of the scripted sequence.
 let seqId = 0, speechId = 0;
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+// The lock belongs to the whole requested session, not to an audible frame.
+// Formation, loading, transport gaps and pauses between lines stay suspended.
+function beginMouthPlayback() {
+  const token = {};
+  mouthPlayback = token;
+  mouthLab?.setPlaybackActive(true);
+  return token;
+}
+function finishMouthPlayback(token) {
+  if (mouthPlayback !== token) return;
+  mouthPlayback = null;
+  mouthLab?.setPlaybackActive(false);
+}
+async function withMouthPlayback(action) {
+  const token = beginMouthPlayback();
+  try { return await action(); }
+  finally { finishMouthPlayback(token); }
+}
 function stopAll() {
   seqId++; speechId++;
   if (liveSession) stopLive(liveSession, 'Live stopped. At rest.');
@@ -166,6 +191,7 @@ function stopAll() {
   liveSpeaking = false;
   state.speaking = false;
   voice.stop();
+  if (mouthPlayback) finishMouthPlayback(mouthPlayback);
 }
 async function speakLine(lineId) {
   const id = ++speechId;
@@ -181,88 +207,96 @@ async function speakLine(lineId) {
 }
 async function playLabLine(lineId) {
   stopAll();
-  const id = seqId;
-  if (state.mode !== 'face') {
-    if (!setMode('face')) return;
-    restCaption('Forming…');
-  }
-  const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
-  await Promise.all([voice.preload([lineId]), sleep(formationWait)]);
-  if (id !== seqId) return;
-  await speakLine(lineId);
+  return withMouthPlayback(async () => {
+    const id = seqId;
+    if (state.mode !== 'face') {
+      if (!setMode('face')) return;
+      restCaption('Forming…');
+    }
+    const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+    await Promise.all([voice.preload([lineId]), sleep(formationWait)]);
+    if (id !== seqId) return;
+    await speakLine(lineId);
+  });
 }
 async function simulateLabLine(lineId, options) {
   if (params.get('tune') !== '1') return;
   stopAll();
-  const id = seqId;
-  if (state.mode !== 'face') {
-    if (!setMode('face')) return;
-    restCaption('Forming…');
-  }
-  const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
-  const [{ startLiveSimulation }] = await Promise.all([
-    import('./livesim.js'), voice.preload([lineId]), sleep(formationWait)
-  ]);
-  if (id !== seqId) return;
-  const line = await voice.getLabLine(lineId);
-  if (id !== seqId) return;
-  face.setReplyText?.(line.text);
-  const simulation = startLiveSimulation(voice, line, options);
-  liveSimulation = simulation;
-  liveSpeaking = true;
-  try {
-    return await simulation.done;
-  } finally {
-    if (liveSimulation === simulation) {
-      liveSimulation = null;
-      liveSpeaking = false;
-      state.speaking = false;
+  return withMouthPlayback(async () => {
+    const id = seqId;
+    if (state.mode !== 'face') {
+      if (!setMode('face')) return;
+      restCaption('Forming…');
     }
-  }
+    const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+    const [{ startLiveSimulation }] = await Promise.all([
+      import('./livesim.js'), voice.preload([lineId]), sleep(formationWait)
+    ]);
+    if (id !== seqId) return;
+    const line = await voice.getLabLine(lineId);
+    if (id !== seqId) return;
+    face.setReplyText?.(line.text);
+    const simulation = startLiveSimulation(voice, line, options);
+    liveSimulation = simulation;
+    liveSpeaking = true;
+    try {
+      return await simulation.done;
+    } finally {
+      if (liveSimulation === simulation) {
+        liveSimulation = null;
+        liveSpeaking = false;
+        state.speaking = false;
+      }
+    }
+  });
 }
 async function runSequence() {
   stopAll();
-  const id = ++seqId; function alive() { return id === seqId; }
-  if (!setMode('face')) return; restCaption('Forming…');
-  await sleep(3000); if (!alive()) return;
-  await speakLine('hello'); if (!alive()) return;
-  await sleep(350); if (!alive()) return;
-  await speakLine('intro'); if (!alive()) return;
-  await speakLine('trees'); if (!alive()) return;
-  setMode('tree'); await sleep(1400); if (!alive()) return;
-  await speakLine('tree'); if (!alive()) return;
-  await sleep(1600); if (!alive()) return;
-  setMode('face'); restCaption('Returning…');
-  await sleep(2600); if (!alive()) return;
-  await speakLine('back'); if (!alive()) return;
-  restCaption('Listening.');
-  await sleep(1800); if (!alive()) return;
+  return withMouthPlayback(async () => {
+    const id = ++seqId; function alive() { return id === seqId; }
+    if (!setMode('face')) return; restCaption('Forming…');
+    await sleep(3000); if (!alive()) return;
+    await speakLine('hello'); if (!alive()) return;
+    await sleep(350); if (!alive()) return;
+    await speakLine('intro'); if (!alive()) return;
+    await speakLine('trees'); if (!alive()) return;
+    setMode('tree'); await sleep(1400); if (!alive()) return;
+    await speakLine('tree'); if (!alive()) return;
+    await sleep(1600); if (!alive()) return;
+    setMode('face'); restCaption('Returning…');
+    await sleep(2600); if (!alive()) return;
+    await speakLine('back'); if (!alive()) return;
+    restCaption('Listening.');
+    await sleep(1800); if (!alive()) return;
+  });
 }
 
 async function replayCapture(reply) {
   if (params.get('tune') !== '1') return;
   stopAll();
-  const id = seqId;
-  if (state.mode !== 'face') {
-    if (!setMode('face')) return;
-    restCaption('Forming…');
-  }
-  await sleep(Math.max(0, 2800 - (state.clock - state.modeT) * 1000));
-  if (id !== seqId) return;
-  face.setReplyText?.(reply.text);
-  const replay = captureTools.startCaptureReplay(voice, reply);
-  captureReplay = replay;
-  liveSpeaking = true;
-  try {
-    const metrics = await replay.done;
-    return { interrupted: metrics.interrupted };
-  } finally {
-    if (captureReplay === replay) {
-      captureReplay = null;
-      liveSpeaking = false;
-      state.speaking = false;
+  return withMouthPlayback(async () => {
+    const id = seqId;
+    if (state.mode !== 'face') {
+      if (!setMode('face')) return;
+      restCaption('Forming…');
     }
-  }
+    await sleep(Math.max(0, 2800 - (state.clock - state.modeT) * 1000));
+    if (id !== seqId) return;
+    face.setReplyText?.(reply.text);
+    const replay = captureTools.startCaptureReplay(voice, reply);
+    captureReplay = replay;
+    liveSpeaking = true;
+    try {
+      const metrics = await replay.done;
+      return { interrupted: metrics.interrupted };
+    } finally {
+      if (captureReplay === replay) {
+        captureReplay = null;
+        liveSpeaking = false;
+        state.speaking = false;
+      }
+    }
+  });
 }
 
 el.wake.addEventListener('click', function () {
@@ -276,9 +310,12 @@ document.querySelectorAll('[data-mode]').forEach(function (b) {
   });
 });
 el.line.addEventListener('click', async function () {
-  stopAll(); const id = seqId;
-  if (state.mode !== 'face') { if (!setMode('face')) return; restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
-  speakLine('test');
+  stopAll();
+  await withMouthPlayback(async () => {
+    const id = seqId;
+    if (state.mode !== 'face') { if (!setMode('face')) return; restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
+    await speakLine('test');
+  });
 });
 el.sound.addEventListener('click', function () {
   soundOn = !soundOn;
@@ -390,6 +427,7 @@ function stopLive(session, caption) {
   endLiveConversation(session);
   if (liveSession !== session) return;
   liveSession = null;
+  finishMouthPlayback(session.mouthPlayback);
   voice.stream.interrupt();
   if (el.voice.textContent.startsWith('Live ·')) {
     el.voice.textContent = session.idleReadout;
@@ -484,7 +522,7 @@ async function startLive() {
   const session = {
     connected: false, listening: true, stopped: false, conversation: null, streams: new Set(),
     cutoff: 0, audioAccepted: false, replyOpen: false, pendingText: null,
-    idleReadout: el.voice.textContent
+    idleReadout: el.voice.textContent, mouthPlayback: beginMouthPlayback()
   };
   liveSession = session;
   liveSetupPending = true;

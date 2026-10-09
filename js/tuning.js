@@ -74,6 +74,114 @@ const EYE_CONTROLS = [
 
 ];
 
+const MOUTH_CONTROLS = [
+  ['w', 'Width', 0.58, 1.3, 0.01],
+  ['h', 'Height', 0, 1.5, 0.01],
+  ['round', 'Rounding', 0, 1, 0.01],
+  ['close', 'Closure', 0, 1, 0.01],
+  ['cup', 'Cup', 0, 1, 0.01],
+  ['square', 'Square', 0, 1, 0.01],
+  ['tuck', 'Lower lip tuck', 0, 1, 0.01],
+  ['oval', 'Oval opening', 0, 1, 0.01],
+];
+const MOUTH_SEQUENCES = {
+  touch: [['REST', 0.09], ['DD', 0.08], ['UH', 0.16], ['CH', 0.12], ['REST', 0.16]],
+  Rome: [['REST', 0.09], ['RR', 0.12], ['OH', 0.18], ['PP', 0.08], ['REST', 0.16]],
+};
+
+// Preview state never enters TUNING or voice. Only the sculpted vocabulary is
+// shared; normal speech continues straight through the existing voice smoother.
+export function createMouthLabController(tuning, onStateChange = () => {}) {
+  const state = { mode: 'off', selected: 'REST', opening: 0.6, sequence: 'touch', speed: 1,
+    playbackActive: false, currentViseme: 'REST' };
+  const shape = { w: 1, h: 1, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0 };
+  const output = { shape, envelope: 0 };
+  let latestShape = shape, latestEnvelope = 0, sequenceTime = 0, handoff = null;
+  const notify = () => onStateChange(state);
+  const value = (source, key) => source[key] ?? (key === 'w' || key === 'h' ? 1 : 0);
+  function activate(mode) {
+    if (state.playbackActive) return false;
+    if (state.mode !== 'hold' && state.mode !== 'sequence') {
+      for (const [key] of MOUTH_CONTROLS) shape[key] = value(latestShape, key);
+      output.envelope = latestEnvelope;
+    }
+    handoff = null;
+    state.mode = mode;
+    sequenceTime = 0;
+    state.currentViseme = mode === 'hold' ? state.selected : MOUTH_SEQUENCES[state.sequence][0][0];
+    notify();
+    return true;
+  }
+  function release(mode) {
+    if (state.mode === 'hold' || state.mode === 'sequence') {
+      handoff = { shape: { ...shape }, envelope: output.envelope, age: 0 };
+    }
+    state.mode = mode;
+    notify();
+  }
+  return {
+    state,
+    select(name) {
+      if (state.playbackActive || !Object.hasOwn(tuning.visemes, name)) return false;
+      state.selected = name;
+      return activate('hold');
+    },
+    hold() { return activate('hold'); },
+    sequence(name = state.sequence) {
+      if (state.playbackActive || !Object.hasOwn(MOUTH_SEQUENCES, name)) return false;
+      state.sequence = name;
+      return activate('sequence');
+    },
+    off() { if (!state.playbackActive) release('off'); },
+    setOpening(opening) { state.opening = Math.max(0, Math.min(1, opening)); notify(); },
+    setSpeed(speed) { state.speed = speed === 0.25 ? 0.25 : 1; notify(); },
+    setPlaybackActive(active) {
+      state.playbackActive = Boolean(active);
+      if (active) release('suspended');
+      else notify();
+    },
+    sample(dt, envelope, speechShape) {
+      latestShape = speechShape;
+      latestEnvelope = envelope;
+      const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      if (state.mode === 'hold' || state.mode === 'sequence') {
+        let name = state.selected;
+        if (state.mode === 'sequence') {
+          const sequence = MOUTH_SEQUENCES[state.sequence];
+          const duration = sequence.reduce((sum, [, seconds]) => sum + seconds, 0);
+          sequenceTime = (sequenceTime + step * state.speed) % duration;
+          let end = 0;
+          name = sequence.find(([, seconds]) => (end += seconds) > sequenceTime)?.[0] ?? 'REST';
+        }
+        if (state.currentViseme !== name) { state.currentViseme = name; notify(); }
+        const target = tuning.visemes[name];
+        for (const [key] of MOUTH_CONTROLS) {
+          const to = value(target, key), response = key === 'close' ? 0.012 : 0.045;
+          shape[key] += (to - shape[key]) * (1 - Math.exp(-step / response));
+          if (Math.abs(to - shape[key]) < 0.00001) shape[key] = to;
+        }
+        output.envelope = state.opening;
+        return output;
+      }
+      if (!handoff) return null;
+      handoff.age += step;
+      if (handoff.age >= 0.135) { handoff = null; return null; }
+      const progress = handoff.age / 0.135;
+      const mix = progress * progress * (3 - 2 * progress);
+      for (const [key] of MOUTH_CONTROLS) {
+        const to = value(speechShape, key);
+        shape[key] = handoff.shape[key] + (to - handoff.shape[key]) * mix;
+      }
+      // Speech closure takes precedence immediately. A held closure releases
+      // on the faster closure clock, never delaying an incoming m/b/p.
+      shape.close = Math.max(value(speechShape, 'close'),
+        handoff.shape.close * Math.exp(-handoff.age / 0.012));
+      output.envelope = handoff.envelope + (envelope - handoff.envelope) * mix;
+      return output;
+    },
+  };
+}
+
 export function createTuningPanel(tuning, onChange, speechLab) {
   const panel = document.createElement('details');
   panel.className = 'tuning';
@@ -91,6 +199,10 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   json.spellcheck = false;
   json.setAttribute('aria-label', 'Current tuning values as JSON');
   const refreshJSON = () => { json.value = JSON.stringify(tuning, null, 2); };
+
+  if (speechLab?.connectMouthLab) {
+    content.append(createMouthLab(tuning, refreshJSON, speechLab.connectMouthLab));
+  }
 
   const copy = document.createElement('button');
   copy.type = 'button';
@@ -171,6 +283,108 @@ export function createTuningPanel(tuning, onChange, speechLab) {
   panel.append(content);
   document.body.append(panel);
   return panel;
+}
+
+function createMouthLab(tuning, onChange, connect) {
+  const group = document.createElement('div');
+  group.className = 'speech-lab';
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Mouth lab');
+  const title = document.createElement('label');
+  title.htmlFor = 'mouth-lab-viseme';
+  title.textContent = 'Mouth lab';
+  const select = document.createElement('select');
+  select.id = 'mouth-lab-viseme';
+  for (const name of Object.keys(tuning.visemes)) {
+    const option = document.createElement('option');
+    option.value = option.textContent = name;
+    select.append(option);
+  }
+  const status = document.createElement('span');
+  status.className = 'tuning-status';
+  status.setAttribute('role', 'status');
+  status.style.gridColumn = '1 / -1';
+  const actions = document.createElement('div');
+  actions.className = 'tuning-footer';
+  actions.style.gridColumn = '1 / -1';
+  actions.style.flexWrap = 'wrap';
+  const hold = document.createElement('button');
+  hold.type = 'button'; hold.textContent = 'Hold'; hold.id = 'mouth-lab-hold';
+  const off = document.createElement('button');
+  off.type = 'button'; off.textContent = 'Off'; off.id = 'mouth-lab-off';
+  const sequence = document.createElement('button');
+  sequence.type = 'button'; sequence.textContent = 'Sequence'; sequence.id = 'mouth-lab-sequence';
+  const sequenceName = document.createElement('select');
+  sequenceName.id = 'mouth-lab-sequence-name';
+  sequenceName.setAttribute('aria-label', 'Mouth sequence');
+  for (const name of Object.keys(MOUTH_SEQUENCES)) {
+    const option = document.createElement('option');
+    option.value = option.textContent = name;
+    sequenceName.append(option);
+  }
+  const speed = document.createElement('select');
+  speed.id = 'mouth-lab-speed';
+  speed.setAttribute('aria-label', 'Mouth sequence speed');
+  for (const value of [1, 0.25]) {
+    const option = document.createElement('option');
+    option.value = value; option.textContent = `${value}×`;
+    speed.append(option);
+  }
+  actions.append(hold, off, sequenceName, sequence, speed);
+  group.append(title, select, actions);
+  const controls = new Map();
+  const disabledDuringPlayback = [select, hold, off, sequenceName, sequence, speed];
+  const controller = createMouthLabController(tuning, state => {
+    for (const control of disabledDuringPlayback) control.disabled = state.playbackActive;
+    hold.setAttribute('aria-pressed', String(state.mode === 'hold'));
+    off.setAttribute('aria-pressed', String(state.mode === 'off'));
+    sequence.setAttribute('aria-pressed', String(state.mode === 'sequence'));
+    status.textContent = state.playbackActive ? 'Suspended during playback.'
+      : state.mode === 'suspended' ? 'Suspended. Choose Hold or Sequence to reactivate.'
+        : state.mode === 'sequence' ? `${state.sequence} · ${state.currentViseme} · ${state.speed}×`
+          : state.mode === 'hold' ? `Holding ${state.selected}` : 'Off';
+  });
+  function slider(key, title, min, max, step, initial, update) {
+    const label = document.createElement('label');
+    label.className = 'tuning-control';
+    label.style.gridColumn = '1 / -1';
+    const name = document.createElement('span'); name.textContent = title;
+    const value = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range'; input.id = `mouth-lab-${key}`;
+    input.min = min; input.max = max; input.step = step; input.value = initial;
+    value.htmlFor = input.id; value.value = input.value;
+    input.addEventListener('input', () => { value.value = input.value; update(Number(input.value)); });
+    label.append(name, value, input);
+    group.append(label);
+    disabledDuringPlayback.push(input);
+    controls.set(key, { input, value });
+  }
+  slider('opening', 'Opening', 0, 1, 0.01, controller.state.opening, value => controller.setOpening(value));
+  for (const [key, label, min, max, step] of MOUTH_CONTROLS) {
+    slider(key, label, min, max, step, tuning.visemes[controller.state.selected][key], value => {
+      tuning.visemes[controller.state.selected][key] = value;
+      onChange();
+    });
+  }
+  select.addEventListener('change', () => {
+    if (!controller.select(select.value)) return;
+    for (const [key] of MOUTH_CONTROLS) {
+      const control = controls.get(key);
+      control.input.value = tuning.visemes[select.value][key];
+      control.value.value = control.input.value;
+    }
+  });
+  hold.addEventListener('click', () => controller.hold());
+  off.addEventListener('click', () => controller.off());
+  sequence.addEventListener('click', () => controller.sequence(sequenceName.value));
+  sequenceName.addEventListener('change', () => {
+    if (controller.state.mode === 'sequence') controller.sequence(sequenceName.value);
+  });
+  speed.addEventListener('change', () => controller.setSpeed(Number(speed.value)));
+  group.append(status);
+  connect(controller);
+  return group;
 }
 
 function createEyes(tuning, onChange, onSelectionSync) {

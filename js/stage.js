@@ -89,6 +89,24 @@ const TUNING = {
     questionAttack: 0.15, questionRelease: 0.3, questionPitch: 1.5,
     interruptRelease: 0.4, replyBlend: 0.4, moodMicroSuppression: 0.4
   },
+  // Mouth lab vocabulary only; speech retains its existing letter mapping.
+  // cup: inward corners/full forward lips; square: flatter CH/SH opening;
+  // tuck: raised lower lip for F/V; oval: slit-to-oval aperture contour.
+  visemes: {
+    REST: { w: 1, h: 0, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0 },
+    PP:   { w: 0.95, h: 1, round: 0, close: 1, cup: 0, square: 0, tuck: 0, oval: 0 },
+    FF:   { w: 1, h: 0.12, round: 0, close: 0, cup: 0, square: 0, tuck: 1, oval: 0 },
+    DD:   { w: 1, h: 0.32, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.15 },
+    SS:   { w: 1.08, h: 0.14, round: 0, close: 0, cup: 0, square: 0.12, tuck: 0, oval: 0 },
+    CH:   { w: 0.84, h: 0.85, round: 0.48, close: 0, cup: 0.18, square: 1, tuck: 0, oval: 0.12 },
+    RR:   { w: 0.76, h: 0.56, round: 0.9, close: 0, cup: 0.92, square: 0, tuck: 0, oval: 0.82 },
+    AA:   { w: 1.12, h: 1.4, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.24 },
+    UH:   { w: 0.96, h: 1.12, round: 0.06, close: 0, cup: 0.06, square: 0, tuck: 0, oval: 0.9 },
+    E:    { w: 1.12, h: 0.72, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.32 },
+    EE:   { w: 1.22, h: 0.36, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.08 },
+    OH:   { w: 0.8, h: 0.92, round: 0.9, close: 0, cup: 0.74, square: 0, tuck: 0, oval: 1 },
+    OU:   { w: 0.68, h: 0.62, round: 1, close: 0, cup: 1, square: 0, tuck: 0, oval: 1 }
+  },
   eyePoses: {
     content: {
       smile: 0.45, browL: 0, browR: 0, tilt: 0, upperLid: 0.45,
