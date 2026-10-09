@@ -3,6 +3,7 @@ import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 import { createFaceForm } from './face-form.js';
 import { createSpeechFlow } from './speech-flow.js';
+import { SIGH_GESTURE, sampleSighGesture } from './face-sigh.js';
 
 import { POSE_CONTROLS, NEUTRAL_POSE, EXPR,
   createCueExpressions, createBrowFlashes, createMicroExpressions } from './face-expressions.js';
@@ -374,6 +375,8 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   let gestureSettings = { anticipation: 0.08, compress: 0.12, hold: 0.1,
     release: 0.25, settle: 0.4, amount: 0.04, chuckleScale: 0.75,
     widen: 0.5, overshoot: 0.2, coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5 };
+  const sighSettings = { ...SIGH_GESTURE };
+  let sighAmount = 1;
   const accentSettings = { direction: 1, amount: 0.036, attack: 0.18, hold: 0.12,
     release: 0.36, overshoot: 0.06, settle: 0.45, coreDelay: 0.02, edgeDelay: 0.12,
     edgeOvershoot: 0.5, widen: 0.5, spacing: 2.6, threshold: 0 };
@@ -421,6 +424,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
       out[1] *= gesture.strength;
       return;
     }
+    if (gestureKind === 'sigh') {
+      sampleSighGesture(age, g, gesture.strength, out);
+      return;
+    }
     out[2] = ramp(age, g.anticipation);
     if (age < g.anticipation) out[0] = g.overshoot * out[2];
     else if ((age -= g.anticipation) < g.compress) out[0] = lerp(g.overshoot, -1, ramp(age, g.compress));
@@ -439,7 +446,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   function sampleGesture(at, out) {
     if (at <= 0) { out.fill(0); return; }
     if (at >= gestureSampledAt) {
-      if (gestureKind === 'accent') {
+      if (gestureKind === 'accent' || gestureKind === 'sigh') {
         // Interpolate the same 240 Hz interval at every display rate, even
         // when its upper sample lies beyond this frame's playback position.
         gestureCurve(gestureSampledAt + GESTURE_STEP, gestureNext);
@@ -468,7 +475,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     gestureCurve(gesture.age, gestureNow);
     gestureCore = sourceCore * (1 - gestureNow[2]) + gestureNow[0];
     gestureWiden = gestureKind === 'accent' ? gesture.settings.widen
-      : lerp(sourceWiden, gestureSettings.widen, gestureNow[2]);
+      : lerp(sourceWiden, gestureKind === 'sigh' ? gesture.settings.widen : gestureSettings.widen, gestureNow[2]);
     for (let i = 0; i < count; i++) {
       if (gestureDelay[i] === 0) {
         gestureValues[i] = gestureCore;
@@ -495,7 +502,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     if (!gestureVisible || recovery) return;
     gestureSource.set(gestureValues); sourceCore = gestureCore;
     speechFlow.capture();
-    recovery = { age: 0, duration: gestureKind === 'accent' ? gesture.settings.settle : gestureSettings.settle };
+    recovery = { age: 0, duration: gestureKind === 'accent' || gestureKind === 'sigh' ? gesture.settings.settle : gestureSettings.settle };
     gesture = null;
     gestureState.activeId = null;
   }
@@ -509,18 +516,20 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   }
 
   function startGesture(window, position) {
-    const continuing = gestureVisible;
+    const continuing = gestureVisible, sigh = window.kind === 'sigh';
+    const settings = { ...(sigh ? sighSettings : gestureSettings) };
     gestureSource.set(gestureValues); sourceCore = gestureCore;
     speechFlow.capture();
-    sourceWiden = continuing ? gestureWiden : gestureSettings.widen;
-    gestureKind = 'gesture';
-    setGestureDelays();
+    sourceWiden = continuing ? gestureWiden : settings.widen;
+    gestureKind = sigh ? 'sigh' : 'gesture';
+    setGestureDelays(settings);
     recovery = null;
-    const settings = { ...gestureSettings };
-    const duration = settings.anticipation + settings.compress + settings.hold + settings.release + settings.settle;
+    const duration = sigh ? settings.gather + settings.hold + settings.release + settings.settle
+      : settings.anticipation + settings.compress + settings.hold + settings.release + settings.settle;
     const delay = Math.max(settings.coreDelay, settings.edgeDelay);
     gesture = { id: window.id, start: window.start, age: continuing ? 0 : Math.max(0, position - window.start), settings,
-      duration: duration + delay, strength: settings.amount * gestureAmount * (window.kind === 'chuckle' ? settings.chuckleScale : 1) };
+      duration: duration + delay, strength: settings.amount * gestureAmount
+        * (sigh ? sighAmount : window.kind === 'chuckle' ? settings.chuckleScale : 1) };
     resetGestureHistory(delay);
     gestureState.activeId = window.id; gestureState.starts++;
     renderGesture();
@@ -602,13 +611,13 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
       if (gestureSeen.has(window.id)) continue;
       if (allowed && cues.state === 'gap' && speechStep === 0) continue;
       gestureSeen.add(window.id);
-      if (allowed) startGesture(window, position);
+      if (allowed && !(window.kind === 'sigh' && (reduce || sighAmount === 0))) startGesture(window, position);
     }
     if (accentAllowed && cues.state !== 'gap') for (const beat of beats) {
       if (beat.replyId !== reply || !Number.isFinite(beat.position) || !Number.isFinite(beat.strength)
           || beat.position < 0.3 || beat.position > position || beat.strength < accentSettings.threshold) continue;
       // Sub-frame beats can precede a window retired on this display frame.
-      // Keep its exact interval for that last step; sighs have no B1 window.
+      // Keep its exact interval for that last step, including sigh releases.
       const inside = window => beat.position >= window.start && beat.position < window.end;
       if (blockingEvent || windows.some(inside) || previousGestureWindows.some(inside)
           || cues.cues?.some(cue => accentCueMap[cue.name]?.kind === 'sigh'
@@ -758,6 +767,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     applyTuning(tuning) {
     if (!reduce && Number.isFinite(tuning.speechFlowAmount))
       speechFlowAmount = clamp(tuning.speechFlowAmount, 0, 1);
+    if (Number.isFinite(tuning.sighAmount)) sighAmount = clamp(tuning.sighAmount, 0, 2);
+    if (tuning.sigh) for (const key of Object.keys(sighSettings)) {
+      if (Number.isFinite(tuning.sigh[key])) sighSettings[key] = Math.max(0, tuning.sigh[key]);
+    }
     if (Number.isFinite(tuning.formAmount)) form.setAmount(tuning.formAmount);
     if (Number.isFinite(tuning.gestureAmount)) gestureAmount = clamp(tuning.gestureAmount, 0, 2);
     if (Number.isFinite(tuning.accentAmount)) accentAmount = clamp(tuning.accentAmount, 0, 2);
@@ -772,7 +785,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
       for (const key of Object.keys(gestureSettings)) if (Number.isFinite(tuning.gesture[key])) {
         gestureSettings[key] = Math.max(0, tuning.gesture[key]);
       }
-      if (gestureKind !== 'accent') {
+      if (gestureKind !== 'accent' && gestureKind !== 'sigh') {
         setGestureDelays();
         gestureWiden = sourceWiden = gestureSettings.widen;
       }

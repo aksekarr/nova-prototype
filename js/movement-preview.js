@@ -14,14 +14,28 @@ const face = createFace(shapes, reduce);
 const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
-let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true;
-let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0;
+let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
+let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
+const tagExamples = { chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
+  confidently: 'confidently', warmly: 'warmly' };
+function tagTuning() {
+  const cueMap = { ...tuning.cueMap };
+  if (!updatedTags) Object.assign(cueMap, {
+    sigh: { kind: 'sigh', pose: 'concern', amount: .8 },
+    sighs: { kind: 'sigh', pose: 'concern', amount: .8 },
+    confidently: { kind: 'mood', pose: 'delighted', amount: .5 },
+    warm: { kind: 'mood', pose: 'content', amount: 1 },
+    warmly: { kind: 'mood', pose: 'content', amount: 1 }
+  });
+  return { cueMap, sighAmount: updatedTags ? 1 : 0 };
+}
 
 function choose(next) {
   voice.stop();
   face.setPose('neutral');
   mode = next;
   began = state.clock;
+  occurrence++;
   maxAccent = 0;
   if (next === 'curious' || next === 'thoughtful') {
     const cue = tuning.cueMap[next];
@@ -33,15 +47,16 @@ startStage({
   shapes, reduce, state, nebulaEnhancement: true,
   applyFaceTuning(value) {
     tuning = value;
-    face.applyTuning({ ...value, formAmount: flowing ? 1 : 0, speechFlowAmount: travelling ? 1 : 0 });
+    face.applyTuning({ ...value, ...tagTuning(), formAmount: flowing ? 1 : 0,
+      speechFlowAmount: travelling ? 1 : 0 });
   },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
     const age = clock - began, speech = mode === 'speech';
-    const chuckle = mode === 'chuckle' && age < 4.8;
-    const cues = chuckle ? {
-      replyId: began, position: age, state: 'speaking',
-      cues: [{ id: 'preview-tag', type: 'tag', name: 'chuckles', start: 0, end: .5 }]
+    const tag = tagExamples[mode];
+    const cues = tag && age < 4.8 ? {
+      replyId: `preview:${occurrence}`, position: age, state: 'speaking',
+      cues: [{ id: 'preview-tag', type: 'tag', name: tag, start: 0, end: .5 }]
     } : speech ? voice.currentCues() : null;
     const listening = mode === 'listening';
     const input = listening && age < 9 ? .18 : 0;
@@ -59,6 +74,9 @@ startStage({
         accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
         head: face.diagnostics.head, form: face.diagnostics.form,
         speechFlow: shapes.headDisplay.diagnostics.accent.flow,
+        gesture: { kind: shapes.headDisplay.diagnostics.gesture.kind,
+          value: shapes.headDisplay.diagnostics.gesture.value,
+          starts: shapes.headDisplay.diagnostics.gesture.starts },
         expression: { browL: face.diagnostics.expression.browL,
           browKnit: face.diagnostics.expression.browKnit,
           mouthOpen: face.diagnostics.expression.mouthOpen }
@@ -67,7 +85,7 @@ startStage({
   }
 });
 
-for (const name of ['neutral', 'curious', 'thoughtful', 'listening', 'chuckle']) {
+for (const name of ['neutral', 'curious', 'thoughtful', 'listening', ...Object.keys(tagExamples)]) {
   document.getElementById(name).onclick = () => choose(name);
 }
 document.getElementById('stop').onclick = () => choose('neutral');
@@ -89,4 +107,9 @@ document.getElementById('flow').onchange = event => {
 document.getElementById('speech-flow').onchange = event => {
   travelling = event.target.checked;
   face.applyTuning({ speechFlowAmount: travelling ? 1 : 0 });
+};
+
+document.getElementById('tag-expressions').onchange = event => {
+  updatedTags = event.target.checked;
+  face.applyTuning(tagTuning());
 };

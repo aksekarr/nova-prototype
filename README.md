@@ -92,8 +92,21 @@ with `?live=1`. Pure pose and expression controllers live in
 `js/face-expressions.js`, with their existing exports also available from
 `js/face.js`.
 
+The movement preview also has silent **Sighs**, **Confidently**, **Warmly**,
+**Chuckle** and **Laughing** examples. **Updated tags** compares the three revised
+tag expressions with their previous mappings; switch it off and replay a tag.
+These are synthetic alignment cues, not generated audio or a live connection.
+
 During conversation, **Curious** uses a focused expression with knitted, lowered
 brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
+**Confidently** now uses composed lids, level brows and a restrained smile instead
+of delighted surprise. **Warmly** has gentler eyes and a softer smile than the
+cheerful content pose. **Sighs** uses a lightly exasperated, relaxed expression
+with a quick gather → widen → reform gesture; the outward release is stronger
+than the initial gathering, and the edge particles trail it slightly. It plays
+once per aligned occurrence, shares the existing gesture handover and suppresses
+ordinary accents while active. Reduced motion keeps the expression and omits
+the new sigh gesture. Existing laugh/chuckle geometry and timing are unchanged.
 Ordinary speech uses restrained, voice-beat-driven stretch/rebound accents, with
 at least 2.6 seconds between starts. Laugh/chuckle gestures keep their separate
 compression and timing. Ordinary accents now carry a directional sweep through

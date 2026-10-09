@@ -9,6 +9,7 @@ import { createNebulaLife, nebulaLightGLSL } from './nebula-life.js';
 import { createStars } from './stars.js';
 import { makeMouthPresets } from './speech-mouth.js';
 import { sampleScalar } from './facesample.js';
+import { SIGH_GESTURE } from './face-sigh.js';
 import { FLANGER_DEFAULTS, setFlangerTuning } from './flanger.js';
 
 const TUNING = {
@@ -45,6 +46,8 @@ const TUNING = {
     amount: 0.04, chuckleScale: 0.75, widen: 0.5, overshoot: 0.2,
     coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5
   },
+  sighAmount: 1,
+  sigh: { ...SIGH_GESTURE },
   accentAmount: 1,
   accent: {
     direction: 1, amount: 0.036, attack: 0.18, hold: 0.12, release: 0.36,
@@ -73,17 +76,17 @@ const TUNING = {
     giggles: { kind: 'laugh', pose: 'laugh', amount: 1 },
     chuckle: { kind: 'chuckle', pose: 'laugh', amount: 0.75 },
     chuckles: { kind: 'chuckle', pose: 'laugh', amount: 0.75 },
-    sigh: { kind: 'sigh', pose: 'concern', amount: 0.8 },
-    sighs: { kind: 'sigh', pose: 'concern', amount: 0.8 },
+    sigh: { kind: 'sigh', pose: 'sigh', amount: 0.8 },
+    sighs: { kind: 'sigh', pose: 'sigh', amount: 0.8 },
     curious: { kind: 'mood', pose: 'focused', amount: 0.85 },
     thoughtful: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     thinking: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     cheerful: { kind: 'mood', pose: 'content', amount: 1 },
-    warm: { kind: 'mood', pose: 'content', amount: 1 },
-    warmly: { kind: 'mood', pose: 'content', amount: 1 },
+    warm: { kind: 'mood', pose: 'warm', amount: 1 },
+    warmly: { kind: 'mood', pose: 'warm', amount: 1 },
     happy: { kind: 'mood', pose: 'content', amount: 1 },
     excited: { kind: 'mood', pose: 'delighted', amount: 0.9 },
-    confidently: { kind: 'mood', pose: 'delighted', amount: 0.5 }
+    confidently: { kind: 'mood', pose: 'confident', amount: 1 }
   },
   cueTiming: {
     eventAttack: 0.15, eventRelease: 0.5, laughMinimum: 1,
@@ -136,6 +139,24 @@ const TUNING = {
       lowerLid: 0.3, slant: 0, browKnit: 0.85, browAngle: 0, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
       headPitch: -0.8, headRoll: 0, gazeX: 0, gazeY: 0
+    },
+    confident: {
+      smile: 0.18, browL: -0.06, browR: -0.06, tilt: 0, upperLid: 0.18,
+      lowerLid: 0.15, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: 0.6, headRoll: 0, gazeX: 0, gazeY: 0
+    },
+    warm: {
+      smile: 0.24, browL: 0.08, browR: 0.08, tilt: 0, upperLid: 0.2,
+      lowerLid: 0.22, slant: 0, browKnit: 0, browAngle: -0.12, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: -0.5, headRoll: 0.5, gazeX: 0, gazeY: 0
+    },
+    sigh: {
+      smile: 0.08, browL: -0.1, browR: -0.1, tilt: 0, upperLid: 0.4,
+      lowerLid: 0.12, slant: 0, browKnit: 0, browAngle: 0.08, eyeAsym: 0,
+      mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
+      headPitch: -0.35, headRoll: 0, gazeX: 0, gazeY: 0
     },
     surprised: {
       smile: 0, browL: 0.8, browR: 0.8, tilt: 0, upperLid: -1,

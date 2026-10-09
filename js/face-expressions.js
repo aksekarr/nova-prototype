@@ -40,6 +40,12 @@ export const EXPR = {
     upperLid: 0.4, lowerLid: 0.35, mouthPress: 0.5, smile: -0.05, gazeY: -0.15, headPitch: -2 }),
   focused: completePose({ browKnit: 0.85, browL: -0.4, browR: -0.4,
     upperLid: 0.3, lowerLid: 0.3, headPitch: -0.8 }),
+  confident: completePose({ upperLid: 0.18, lowerLid: 0.15, browL: -0.06, browR: -0.06,
+    smile: 0.18, headPitch: 0.6 }),
+  warm: completePose({ upperLid: 0.2, lowerLid: 0.22, browL: 0.08, browR: 0.08,
+    browAngle: -0.12, smile: 0.24, headRoll: 0.5, headPitch: -0.5 }),
+  sigh: completePose({ upperLid: 0.4, lowerLid: 0.12, browL: -0.1, browR: -0.1,
+    browAngle: 0.08, smile: 0.08, headPitch: -0.35 }),
   surprised: completePose({ upperLid: -1, browL: 0.8, browR: 0.8, browAngle: -0.2,
     mouthOpen: 0.35, mouthRound: 0.6, squashStretch: 0.85, headPitch: 2 }),
   concern: completePose({ browAngle: -0.7, browKnit: 0.2, browL: 0.15, browR: 0.15,
@@ -165,7 +171,7 @@ export function createCueExpressions() {
       }
       knownEnds.set(id, end + recovery);
       if (position >= end + recovery) { retired.add(id); continue; }
-      if (!isQuestion && ['laugh', 'chuckle'].includes(mapping.kind)) {
+      if (!isQuestion && ['laugh', 'chuckle', 'sigh'].includes(mapping.kind)) {
         gestureWindows.push({ id, kind: mapping.kind, start: cue.start, end: end + recovery });
       }
       if (position < cue.start) continue;

@@ -8,9 +8,10 @@
   <script type="importmap">{"imports":{"three":"./js/vendor/three.module.js","three/addons/":"./js/vendor/addons/"}}</script>
   <style>
     .qa { position:fixed; z-index:10; left:24px; top:20px; right:24px; font:13px system-ui; color:#ddd }
-    .qa nav { display:flex; gap:8px; flex-wrap:wrap }
+    .qa nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px }
+    .qa p { max-width:380px }
     .qa button { padding:8px 12px; font:inherit }
-    #metrics { white-space:pre-wrap; max-width:330px; max-height:60vh; overflow:auto; font-size:12px }
+    #metrics { white-space:pre-wrap; max-width:330px; max-height:42vh; overflow:auto; font-size:12px }
     h1 { font-size:16px; font-weight:500 }
     canvas { position:fixed; inset:0 }
   </style>
@@ -25,9 +26,17 @@
       <button id="thoughtful">Thoughtful</button>
       <button id="speech">Play cached speech</button>
       <button id="listening">Simulate your turn</button>
-      <button id="chuckle">Chuckle</button>
       <button id="stop">Stop</button>
     </nav>
+    <nav aria-label="Silent audio-tag examples">
+      <button id="sighs">Sighs</button>
+      <button id="confidently">Confidently</button>
+      <button id="warmly">Warmly</button>
+      <button id="chuckle">Chuckle</button>
+      <button id="laughing">Laughing</button>
+    </nav>
+    <p>Audio-tag buttons show silent visual examples.</p>
+    <p><label><input id="tag-expressions" type="checkbox" checked> Updated tags</label> — switch off and replay a tag to compare.</p>
     <p><label><input id="flow" type="checkbox" checked> Fluid shape</label> — approved neutral/listening movement.</p>
     <p><label><input id="speech-flow" type="checkbox" checked> Travelling speech</label> — switch off, then replay cached speech to compare.</p>
     <p>Neutral: watch for 15 seconds. Simulate your turn: gathers while you speak, then relaxes after 9 seconds.</p>
