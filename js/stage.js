@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createGas } from './gas.js';
 import { createStars } from './stars.js';
+import { createOrbital } from './orbital.js';
 import { makeMouthPresets } from './speech-mouth.js';
 import { sampleScalar } from './facesample.js';
 import { FLANGER_DEFAULTS, setFlangerTuning } from './flanger.js';
@@ -171,6 +172,7 @@ const BLOOM_RESOLUTION_SCALE = 0.5;
 export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab }) {
   const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const hasFace = Boolean(shapes.MAPS);
+  const orbital = createOrbital(N, reduce);
   const canvas = document.getElementById('stage');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
   // r128 wrote linear colours directly; keep that output and the same clear colour.
@@ -504,20 +506,28 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);
     last = now;
     state.clock += dt;
+    // Conversation activity may change the form in this same frame.
+    onFrame(dt, state.clock);
     const { mode, modeT, clock } = state;
-    onFrame(dt, clock);
+    // Keep expression/release clocks current even while another form is visible.
     updateFace(dt, clock);
+    if (mode === 'orbit') orbital.update(clock);
 
     const speed = reduce ? 0.4 : 1;
     const aN = clock * 0.025 * speed, cN = Math.cos(aN), sN = Math.sin(aN);
     const aT = (clock - modeT) * 0.22 * speed, cT = Math.cos(aT), sT = Math.sin(aT);
-    const ramp = mode === 'face' ? Math.min(1, Math.max(0, (clock - modeT - 1.6) / 1.2)) : 0;
+    const orbitFollow = THREE.MathUtils.smoothstep(clock - modeT, 0, 1.1);
+    const fastReturn = mode === 'face' && state.faceReturnFast;
+    const ramp = mode === 'face' ? fastReturn
+      ? THREE.MathUtils.smoothstep(clock - modeT, 0, 0.6)
+      : Math.min(1, Math.max(0, (clock - modeT - 1.6) / 1.2)) : 0;
     const shimmer = reduce ? 0.004 : 0.012, t2 = clock * 2;
     const f60 = dt * 60;
     const fastColourRate = 1 - Math.exp(-dt / 0.018);
     const settledPositionRate = 1 - Math.pow(0.55, f60);
-    const targetCol = mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
-    const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? 0.25 + TUNING.gasWrap * 0.9 : 0.5;
+    const targetCol = mode === 'orbit' ? orbital.colours
+      : mode === 'nebula' ? NEB_COL : mode === 'tree' ? TREE_COL : FACE_COL;
+    const targetGas = mode === 'nebula' ? 1 : mode === 'face' ? 0.25 + TUNING.gasWrap * 0.9 : mode === 'orbit' ? 0.3 : 0.5;
     const targetNebula = mode === 'nebula' ? 1 : 0;
     const recycled = mode === 'face' && clock - modeT > 3.5 ? shapes.RECYCLED : null;
     let gasSum = 0, nebulaSum = 0, fitHeight = 0, fitWidth = 0;
@@ -537,6 +547,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         bx = NEB[j]; by = NEB[j + 1]; bz = NEB[j + 2];
         tx = bx * cN - bz * sN; tz = bx * sN + bz * cN;
         ty = by + Math.sin(clock * 0.35 + PH[i]) * 0.22 * speed;
+      } else if (mode === 'orbit') {
+        tx = orbital.positions[j]; ty = orbital.positions[j + 1]; tz = orbital.positions[j + 2];
       } else if (mode === 'tree') {
         bx = TREE[j]; by = TREE[j + 1]; bz = TREE[j + 2];
         tx = bx * cT - bz * sT; tz = bx * sT + bz * cT;
@@ -552,6 +564,9 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         fitWidth = Math.max(fitWidth, Math.hypot(tx, tz) * widthGuard);
       }
       let rate = RATE[i];
+      if (mode === 'orbit') {
+        rate += (0.16 - rate) * orbitFollow;
+      } else if (fastReturn && clock - modeT < 1) rate = Math.max(rate, 0.16);
       if (i < FEATURE_END && ramp > 0) rate = rate + (0.45 - rate) * ramp;
       const k = i < FEATURE_END && ramp === 1 ? settledPositionRate : 1 - Math.pow(1 - rate, f60);
       frameRates[i] = k;
@@ -591,8 +606,13 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     geom.attributes.position.needsUpdate = true;
     geom.attributes.color.needsUpdate = true;
 
-    if (mode !== 'nebula' && mode !== 'face') fitHeight = fitFormHeight(fitHeight, frameHeight);
-    const targetDepth = mode === 'nebula' ? baseZ : mode === 'face' ? mapFitDepth : Math.max(4, fitHeight, fitWidth);
+    if (mode === 'tree') fitHeight = fitFormHeight(fitHeight, frameHeight);
+    // A fixed enclosing sphere keeps all three moving planes in frame without
+    // pumping the camera as their projected silhouette changes.
+    const orbitSlope = slope * Math.min(0.68, camera.aspect * 0.82);
+    const orbitDepth = orbital.bounds.radius * Math.sqrt(1 + 1 / (orbitSlope * orbitSlope));
+    const targetDepth = mode === 'nebula' ? baseZ : mode === 'face' ? mapFitDepth
+      : mode === 'orbit' ? orbitDepth : Math.max(4, fitHeight, fitWidth);
     let depthSum = 0;
     for (let i = 0; i < N; i++) {
       cameraDepth[i] += (targetDepth - cameraDepth[i]) * frameRates[i];

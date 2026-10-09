@@ -4,9 +4,13 @@ import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 import { loadFaceMap } from './facemap.js';
 import { loadReferenceClips, playReferenceClip } from './flanger.js';
+import { createIdleForms } from './idle-forms.js';
 
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const params = new URLSearchParams(window.location.search);
+if (params.get('orbit') === '1' && params.get('live') !== '1' && params.get('tune') !== '1') {
+  document.body.classList.add('orbit-preview');
+}
 const requestedN = params.get('n');
 const parsedN = requestedN === null || requestedN.trim() === '' ? NaN : Number(requestedN);
 
@@ -23,14 +27,16 @@ const designs = createShapes(N, faceMaps);
 const shapes = { ...designs, ...designs.FACE_V3 };
 const face = designs.FACE_V3 ? createFace(shapes, reduce) : { update() {}, applyTuning() {} };
 const FACE_UNAVAILABLE = 'Face unavailable. Staying in nebula.';
-const state = { mode: 'nebula', modeT: 0, clock: 0, speaking: false };
+const state = { mode: 'nebula', modeT: 0, clock: 0, speaking: false, faceReturnFast: false };
 const el = {
   state: document.getElementById('r-state'), expr: document.getElementById('r-expr'),
   voice: document.getElementById('r-voice'), caption: document.getElementById('caption'),
   wake: document.getElementById('wake'), sound: document.getElementById('sound'),
-  line: document.getElementById('line')
+  line: document.getElementById('line'), idleForms: document.getElementById('idle-forms')
 };
-const LABEL = { nebula: 'Nebula', face: 'Face', tree: 'Tree' };
+const LABEL = { nebula: 'Nebula', face: 'Face', tree: 'Tree', orbit: 'Orbit' };
+const idleForms = createIdleForms();
+let nextIdleCheck = 0, posePreviewActive = false;
 let soundOn = true;
 let liveSimulation = null;
 let captureReplay = null;
@@ -57,8 +63,11 @@ voice.preload(['hello', 'intro', 'trees', 'tree', 'back', 'test']).then(() => {
 });
 
 function setMode(m) {
+  if (!Object.hasOwn(LABEL, m)) return false;
   if (!faceMaps) { restCaption(FACE_UNAVAILABLE); return false; }
   if (m === state.mode) return true;
+  state.faceReturnFast = m === 'face' && state.mode === 'orbit';
+  idleForms.reset(nowSeconds());
   state.mode = m;
   state.modeT = state.clock;
   el.state.textContent = LABEL[m];
@@ -87,7 +96,8 @@ if (expressionRow) {
   }
 }
 
-function renderExpressionSelection({ name, intensity, active }) {
+function renderExpressionSelection({ name, intensity, active, preview }) {
+  posePreviewActive = Boolean(preview);
   const title = active.charAt(0).toUpperCase() + active.slice(1);
   if (el.expr.textContent !== title) el.expr.textContent = title;
   for (const button of expressionButtons) {
@@ -104,6 +114,7 @@ document.addEventListener('nova-pose-select', event => {
 });
 
 function setExpr(name, intensity = 1) {
+  wakeForActivity();
   face.setPose?.(name, intensity);
 }
 
@@ -112,7 +123,59 @@ function restCaption(text) {
   el.caption.textContent = text;
 }
 
+function nowSeconds() { return performance.now() / 1000; }
+function wakeForActivity() {
+  const mode = idleForms.activity(nowSeconds(), state.mode);
+  if (mode) setMode(mode);
+}
+function selectVisualMode(mode) {
+  // Cancel only pending scripted steps. Current audio and live transport stay owned
+  // by their existing session, and there is no delayed visual return to cancel.
+  seqId++;
+  idleForms.reset(nowSeconds());
+  if (!setMode(mode)) return;
+  if (!voice.currentCues() && !liveSession?.pendingText) {
+    restCaption(mode === 'orbit' ? 'Orbit.' : liveSession?.connected ? 'Live listening.' : 'Listening.');
+  }
+}
+function faceFormationMilliseconds() { return state.faceReturnFast ? 800 : 2800; }
+function updateIdleForms() {
+  const now = nowSeconds();
+  if (now < nextIdleCheck) return;
+  nextIdleCheck = now + .1;
+  const session = liveSession;
+  const visible = document.visibilityState !== 'hidden';
+  let inputReady = false, inputLevel = null;
+  if (visible && session?.connected && !session.stopped) {
+    // Read the SDK's existing analyser at 10 Hz; never acquire another stream.
+    // A muted, suspended or missing microphone cannot prove that a user is quiet.
+    try {
+      const conversation = session.conversation, input = conversation?.input;
+      inputReady = typeof conversation?.getInputVolume === 'function'
+        && input?.context?.state === 'running' && typeof input.isMuted === 'function' && !input.isMuted()
+        && Boolean(input.inputStream?.getAudioTracks().some(track =>
+          track.readyState === 'live' && track.enabled && !track.muted));
+      if (inputReady) inputLevel = conversation.getInputVolume();
+    } catch { inputReady = false; }
+  }
+  const mode = idleForms.update(now, {
+    mode: state.mode, visible, monitorInput: Boolean(session), inputReady, inputLevel,
+    liveReady: !liveSetupPending && (!session || (session.connected && !session.stopped)),
+    audioActive: Boolean(voice.currentCues()) || state.speaking || voice.stream.isActive(),
+    replyPending: Boolean(session && (session.awaitingReply || session.pendingText !== null
+      || session.replyOpen || !session.listening)),
+    scriptActive: Boolean((mouthPlayback && mouthPlayback !== session?.mouthPlayback)
+      || liveSimulation || captureReplay),
+    tuningActive: params.get('tune') === '1' || posePreviewActive || previewListening
+      || mouthLab?.state.mode === 'hold' || mouthLab?.state.mode === 'sequence'
+  });
+  if (mode) setMode(mode);
+}
+el.idleForms.checked = idleForms.enabled;
+el.idleForms.addEventListener('change', () => idleForms.setEnabled(el.idleForms.checked, nowSeconds()));
+
 if (!faceMaps) restCaption(FACE_UNAVAILABLE);
+else if (params.get('orbit') === '1') { setMode('orbit'); restCaption('Orbit.'); }
 
 startStage({
   shapes, reduce, state,
@@ -149,13 +212,14 @@ startStage({
       el.voice.textContent = `Live · ${liveSession.connected ? state.speaking ? 'Speaking' : 'Listening' : 'Connecting'}`;
       el.voice.classList.toggle('live', state.speaking);
     }
+    updateIdleForms();
   },
   updateFace: (dt, clock) => {
     const envelope = voice.currentEnvelope(), shape = voice.currentShape();
     face.update(dt, clock, voice.currentCues(), envelope, shape,
       state.speaking, voice.lastReplyEnd(), previewListening
         || Boolean(liveSession?.connected && liveSession.listening),
-      mouthLab);
+      mouthLab, state.mode !== 'orbit' || clock - state.modeT < 1);
   }
 });
 
@@ -194,6 +258,7 @@ function stopAll() {
   if (mouthPlayback) finishMouthPlayback(mouthPlayback);
 }
 async function speakLine(lineId) {
+  wakeForActivity();
   const id = ++speechId;
   state.speaking = true;
   try {
@@ -213,7 +278,7 @@ async function playLabLine(lineId) {
       if (!setMode('face')) return;
       restCaption('Forming…');
     }
-    const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+    const formationWait = Math.max(0, faceFormationMilliseconds() - (state.clock - state.modeT) * 1000);
     await Promise.all([voice.preload([lineId]), sleep(formationWait)]);
     if (id !== seqId) return;
     await speakLine(lineId);
@@ -228,7 +293,7 @@ async function simulateLabLine(lineId, options) {
       if (!setMode('face')) return;
       restCaption('Forming…');
     }
-    const formationWait = Math.max(0, 2800 - (state.clock - state.modeT) * 1000);
+    const formationWait = Math.max(0, faceFormationMilliseconds() - (state.clock - state.modeT) * 1000);
     const [{ startLiveSimulation }] = await Promise.all([
       import('./livesim.js'), voice.preload([lineId]), sleep(formationWait)
     ]);
@@ -280,7 +345,7 @@ async function replayCapture(reply) {
       if (!setMode('face')) return;
       restCaption('Forming…');
     }
-    await sleep(Math.max(0, 2800 - (state.clock - state.modeT) * 1000));
+    await sleep(Math.max(0, faceFormationMilliseconds() - (state.clock - state.modeT) * 1000));
     if (id !== seqId) return;
     face.setReplyText?.(reply.text);
     const replay = captureTools.startCaptureReplay(voice, reply);
@@ -305,6 +370,10 @@ el.wake.addEventListener('click', function () {
 });
 document.querySelectorAll('[data-mode]').forEach(function (b) {
   b.addEventListener('click', function () {
+    if (b.dataset.mode === 'orbit' || b.dataset.mode === 'face') {
+      selectVisualMode(b.dataset.mode);
+      return;
+    }
     stopAll(); if (!setMode(b.dataset.mode)) return;
     restCaption(b.dataset.mode === 'nebula' ? 'At rest.' : b.dataset.mode === 'tree' ? 'Showing a tree.' : 'Listening.');
   });
@@ -313,7 +382,7 @@ el.line.addEventListener('click', async function () {
   stopAll();
   await withMouthPlayback(async () => {
     const id = seqId;
-    if (state.mode !== 'face') { if (!setMode('face')) return; restCaption('Forming…'); await sleep(2800); if (id !== seqId) return; }
+    if (state.mode !== 'face') { if (!setMode('face')) return; restCaption('Forming…'); await sleep(faceFormationMilliseconds()); if (id !== seqId) return; }
     await speakLine('test');
   });
 });
@@ -522,7 +591,7 @@ async function startLive() {
   if (!setMode('face')) return;
   const session = {
     connected: false, listening: true, stopped: false, conversation: null, streams: new Set(),
-    cutoff: 0, audioAccepted: false, replyOpen: false, pendingText: null,
+    cutoff: 0, audioAccepted: false, replyOpen: false, pendingText: null, awaitingReply: false,
     idleReadout: el.voice.textContent, mouthPlayback: beginMouthPlayback()
   };
   liveSession = session;
@@ -535,6 +604,8 @@ async function startLive() {
     if (active()) stopLive(session, liveErrorCaption(error));
   };
   const beginReply = () => {
+    wakeForActivity();
+    session.awaitingReply = false;
     if (!session.replyOpen) {
       face.setReplyText?.(session.pendingText);
       voice.stream.begin();
@@ -581,13 +652,16 @@ async function startLive() {
       onConnect() {
         if (!active()) return;
         session.connected = true;
+        wakeForActivity();
         restCaption('Live listening.');
       },
       onIncomingEvent(event) {
+        if (!active()) return;
         // BaseConversation.onMessage invokes this before handleAudio, whose
         // alignment callback precedes the SDK's own event_id interruption filter.
         if (event.type === 'audio') {
           session.audioAccepted = Number.isFinite(event.audio_event.event_id) && event.audio_event.event_id >= session.cutoff;
+          if (session.audioAccepted) wakeForActivity();
         }
       },
       onAudio(base64) {
@@ -601,7 +675,15 @@ async function startLive() {
         voice.stream.addAlignment(alignment);
       },
       onMessage({ source, message, event_id }) {
-        if (!active() || source !== 'ai' || event_id < session.cutoff) return;
+        if (!active()) return;
+        if (source === 'user') {
+          session.awaitingReply = true;
+          wakeForActivity();
+          return;
+        }
+        if (source !== 'ai' || event_id < session.cutoff) return;
+        session.awaitingReply = true;
+        wakeForActivity();
         if (session.replyOpen) {
           face.setReplyText?.(message);
           voice.stream.setText(message);
@@ -611,14 +693,18 @@ async function startLive() {
       onModeChange({ mode }) {
         if (!active()) return;
         session.listening = mode === 'listening';
+        if (mode !== 'listening') { session.awaitingReply = true; wakeForActivity(); }
         // handlePlaybackEvent(process.finished) reports the muted SDK queue's
         // end; Nova may still be audible while its own scheduled tail drains.
         if (mode !== 'listening' || !session.replyOpen) return;
         session.replyOpen = false;
+        session.awaitingReply = false;
         voice.stream.end();
       },
       onInterruption({ event_id }) {
         if (!active()) return;
+        session.awaitingReply = true;
+        wakeForActivity();
         voice.stream.interrupt();
         session.cutoff = Math.max(session.cutoff, event_id);
         session.audioAccepted = false;

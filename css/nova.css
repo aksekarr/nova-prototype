@@ -72,6 +72,17 @@ body { background: var(--void); color: var(--ink); font-family: var(--mono); ove
   text-align: center; font-size: 1rem; line-height: 1.5; text-wrap: balance;
   color: var(--ink);
 }
+/* The orbital preview leaves the form clear, including on narrow screens. */
+.orbit-preview .caption,
+.orbit-preview .note,
+.orbit-preview #wake,
+.orbit-preview .group[aria-label="Expression"],
+.orbit-preview .group[aria-label="Voice"],
+.orbit-preview [data-mode="nebula"],
+.orbit-preview [data-mode="tree"] { display: none; }
+.orbit-preview .group[aria-label="Shape"] { align-items: center; gap: 10px; }
+.orbit-preview .group[aria-label="Shape"] > span { display: none; }
+
 /* Keep live speech text clear of the face; retain connection/status messages. */
 .live-chat .caption:not(.rest) { display: none; }
 .caption .w { opacity: 0.2; transition: opacity 0.12s linear; }
@@ -82,6 +93,9 @@ body { background: var(--void); color: var(--ink); font-family: var(--mono); ove
 .group { display: flex; flex-direction: column; gap: 6px; }
 .group > span { font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
 .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.idle-forms-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.65rem; color: var(--dim); }
+.idle-forms-toggle input { margin: 0; accent-color: var(--ember); }
+.idle-forms-toggle input:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
 .live-group input {
   box-sizing: border-box; width: 150px; min-width: 0; padding: 9px;
   font: 0.72rem var(--mono); color: var(--ink); background: var(--veil);
