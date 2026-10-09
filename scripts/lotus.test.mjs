@@ -116,3 +116,46 @@ test('the generator never uses global randomness; empty and invalid counts are h
     for (const count of [-1, .5, NaN, Infinity]) assert.throws(() => createLotus(count), RangeError);
   } finally { Math.random = original; }
 });
+
+
+test('the centre releases a visible upward stream as the lotus opens', () => {
+  const form = createLotus(48000);
+  const highGrains = () => {
+    const indices = [];
+    for (let j = 0; j < form.positions.length; j += 3) {
+      if (form.positions[j + 1] > 1.9 && form.positions[j + 1] < 2.4
+        && Math.abs(form.positions[j]) < .7 && form.colours[j + 2] > .06) indices.push(j);
+    }
+    return indices;
+  };
+  assert.equal(highGrains().length, 0, 'the closed bud has no premature stream');
+  form.update(8);
+  const rising = highGrains(), before = form.positions.slice();
+  assert.ok(rising.length > 100, 'the open flower has a substantial centre stream');
+  form.update(8.05);
+  assert.ok(rising.filter(j => form.positions[j + 1] > before[j + 1]).length > rising.length * .95,
+    'the stream actually travels upward');
+});
+
+test('fast bright traces have quiet gaps and stay confined to a small part of the flower', () => {
+  const form = createLotus(48000);
+  let quiet = 0, peak = 0, samples = 0;
+  for (let step = 0; step < 100; step++) {
+    form.update(4 + step * .1);
+    let bright = 0;
+    for (let j = 0; j < form.colours.length; j += 3) {
+      if (form.colours[j] > .55 && form.colours[j + 1] > .65 && form.colours[j + 2] > .93) bright++;
+    }
+    peak = Math.max(peak, bright);
+    if (bright === 0) quiet++;
+    samples++;
+  }
+  assert.ok(peak > 10, 'a clear bright moving head appears');
+  assert.ok(peak < 480, 'the flower never flashes as a whole');
+  assert.ok(quiet > samples * .65, 'most time is quiet rather than continuously chasing light');
+  for (const age of [4.41, 4.7, 5.55, 11.7, 12.5, 17.8, 4.7]) {
+    const fresh = createLotus(48000); fresh.update(age); form.update(age);
+    assert.deepEqual(form.positions, fresh.positions);
+    assert.deepEqual(form.colours, fresh.colours, 'flash seeks have no residual event state');
+  }
+});
