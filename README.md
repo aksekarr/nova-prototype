@@ -90,6 +90,19 @@ with `?live=1`. Pure pose and expression controllers live in
 `js/face-expressions.js`, with their existing exports also available from
 `js/face.js`.
 
+During conversation, **Curious** uses a focused expression with knitted, lowered
+brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
+Ordinary speech uses restrained, voice-beat-driven stretch/rebound accents, with
+at least 2.6 seconds between starts. Laugh/chuckle gestures keep their separate
+compression and timing.
+
+Live listening reads only the pinned SDK's existing input-volume analyser. After
+sustained input, Seni gently centres her attention and makes one small nod;
+quiet rearms the response with a six-second cooldown. Muting, ending the session,
+and active or draining replies gate this input. Levels are not stored or logged.
+Reduced motion suppresses the new acknowledgement nod. The particle simulation,
+form mappings and shared voice-player interface are unchanged by this layer.
+
 Run the local regression suite with
 `node --test scripts/*.test.mjs scripts/mouth-study/*.test.mjs`. No package install
 or build step is required. Tests use synthetic voice/provider boundaries and do

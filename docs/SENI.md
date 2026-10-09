@@ -17,10 +17,26 @@ This file is the source for her ElevenLabs system prompt. Assume anyone can read
 - **TTS model:** V4 Turbo, expressive mode on
 - **Stability** around 50% (lower = more expressive), **similarity** at the default, **speed** 1.0
 - **Output format:** PCM 44100 Hz. Nova's lip sync depends on it.
-- **Suggested audio tags:** Chuckles, Sighs, Confidently, Laughing
+- **Suggested audio tags:** Chuckles, Sighs, Confidently, Laughing, Curious, Thoughtful, Warmly
 - **LLM:** placeholder, same as the Syra agent for now
 - Default personality off; max conversation duration 120 s
 - The agent ID never goes in this repo.
+
+## Audio tag descriptions (dashboard, 9 Oct 2026)
+
+These are the descriptions saved in ElevenLabs. This record does not alter the
+agent's system prompt or its settings. The system prompt below gives no numerical
+frequency rule; it asks for natural use without overdoing tags.
+
+| Tag | Saved description |
+| --- | --- |
+| Chuckles | A small, warm laugh at something mildly funny or ironic, including your own joke. More common than Laughing; fine mid-sentence. |
+| Sighs | Rare, light, playful exasperation about the situation or your own mistake. Not a default response to someone sharing something personal or difficult. |
+| Confidently | Calm conviction when offering a considered recommendation or taking a clear position. Keep uncertainty explicit. Routine factual answers don’t need this tag. |
+| Laughing | When something is genuinely funny: a joke lands, or the person says something absurd. Not for polite amusement. Rare. |
+| Curious | When asking the person about themselves, or digging into something interesting they just said. |
+| Thoughtful | When a question needs a moment: weighing options, an honest “it depends”, or something unexpectedly deep. |
+| Warmly | When the person shares something personal, kind or vulnerable. |
 
 ## First message
 

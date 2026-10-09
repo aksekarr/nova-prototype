@@ -7,8 +7,9 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export function createFaceHead(reduce = false, options = {}) {
   const random = options.random ?? Math.random;
   const between = (low, high) => low + random() * (high - low);
-  // yaw, resting pitch, roll, nod, gaze x/y, speaking blend, head/roll gains
-  const position = new Float64Array(9), velocity = new Float64Array(9);
+  // yaw, resting pitch, roll, nod, gaze x/y, speaking blend, head/roll gains,
+  // listening attention and its independent acknowledgement nod.
+  const position = new Float64Array(11), velocity = new Float64Array(11);
   position[7] = position[8] = 1;
   const history = new Float64Array(HISTORY);
   let historyIndex = 0, historySum = 0, sampleTime = 0, sampleSum = 0;
@@ -17,6 +18,8 @@ export function createFaceHead(reduce = false, options = {}) {
   let heardSpeech = false, quietTime = 0, phraseEnded = false;
   let nodUntil = 0, nodTarget = 0, speakingRoll = 0;
   let verticalCredit = 0;
+  let inputVoiced = 0, inputQuiet = 0, attentionTarget = false;
+  let acknowledged = false, lastAcknowledgement = -Infinity, acknowledgementUntil = 0;
   let rollBiasActive = false, renderedRoll = 0;
   let yawPhase = between(0, TAU), idlePhase = between(0, TAU);
   let yawPeriod = between(3, 6), idlePeriod = between(4, 8);
@@ -27,7 +30,8 @@ export function createFaceHead(reduce = false, options = {}) {
   let lastBlink = -10, blinkCredit = 0, blinkThreshold = between(0.85, 1.15);
   let doubleAt = Infinity, headAmount = 1, rollAmount = 1, nodAmount = 1, blinkRate = 17;
   const motionScale = reduce ? 0.2 : 1;
-  const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0 };
+  const diagnostics = { beats: 0, verticalBeats: 0, phraseNods: 0, glances: 0, blinks: 0,
+    attention: 0, listeningNods: 0 };
   const beats = [];
   const phraseEvents = [];
   const pose = {
@@ -75,10 +79,12 @@ export function createFaceHead(reduce = false, options = {}) {
     doubleAt = !paired && random() < 0.05 ? time + between(1.2, 1.45) : Infinity;
   }
 
-  function update(dt, { speaking = false, envelope = 0, bias = null } = {}) {
+  function update(dt, { speaking = false, envelope = 0, bias = null,
+    listening = false, inputVolume = 0 } = {}) {
     pose.blink = false;
     if (!Number.isFinite(dt) || dt <= 0) return pose;
     const previousRoll = renderedRoll;
+    inputVolume = Number.isFinite(inputVolume) ? clamp(inputVolume, 0, 1) : 0;
     envelope = Number.isFinite(envelope) ? clamp(envelope, 0, 1) : 0;
     if (speaking && !wasSpeaking) {
       heardSpeech = false;
@@ -111,6 +117,35 @@ export function createFaceHead(reduce = false, options = {}) {
       spring(8, rollAmount, step, 17, 0.99);
       const blend = clamp(position[6], 0, 1);
       const gain = Math.max(0, position[7]) * motionScale;
+      // A sustained input turn earns attention and one small acknowledgement.
+      // Hysteresis bridges syllable gaps; silence rearms it, with a six-second
+      // cooldown. This channel neither emits speech beats nor consumes random
+      // draws, so existing speech choreography keeps its original decisions.
+      if (listening && !speaking) {
+        if (inputVolume >= (attentionTarget ? 0.045 : 0.08)) {
+          inputVoiced += step;
+          inputQuiet = 0;
+          if (inputVoiced >= 0.3) attentionTarget = true;
+          if (!acknowledged && inputVoiced >= 0.9 && time - lastAcknowledgement >= 6) {
+            acknowledged = true;
+            if (!reduce) {
+              acknowledgementUntil = time + 0.15;
+              lastAcknowledgement = time;
+              diagnostics.listeningNods++;
+            }
+          }
+        } else {
+          inputQuiet += step;
+          if (inputQuiet >= 0.35) { attentionTarget = false; inputVoiced = 0; }
+          if (inputQuiet >= 1.2) acknowledged = false;
+        }
+      } else {
+        inputVoiced = inputQuiet = 0;
+        attentionTarget = acknowledged = false;
+        acknowledgementUntil = 0;
+      }
+      spring(9, attentionTarget ? 1 : 0, step, 8, 0.99);
+      spring(10, time < acknowledgementUntil ? gain * nodAmount / 0.885 : 0, step, 20);
       const previousEnvelope = envelopeSmooth;
       envelopeSmooth += (envelope - envelopeSmooth) * (1 - Math.exp(-step / 0.025));
       const rise = (envelopeSmooth - previousEnvelope) / step;
@@ -239,6 +274,16 @@ export function createFaceHead(reduce = false, options = {}) {
     renderedRoll = pose.roll;
     if (bias?.gazeX) pose.gazeX = clamp(pose.gazeX + bias.gazeX, -1, 1);
     if (bias?.gazeY) pose.gazeY = clamp(pose.gazeY + bias.gazeY, -1, 1);
+    const attention = clamp(position[9], 0, 1);
+    diagnostics.attention = attention;
+    // Orient toward the person without freezing blinks or particle flow. The
+    // separate spring lets mute, reply onset and session end release smoothly.
+    pose.yaw *= 1 - attention * 0.75;
+    pose.x *= 1 - attention * 0.75;
+    pose.gazeX *= 1 - attention * 0.85;
+    pose.gazeY *= 1 - attention * 0.85;
+    pose.pitch += position[10] - attention * 0.4 * motionScale * headAmount;
+    pose.y -= position[10] * 0.003;
     return pose;
   }
 

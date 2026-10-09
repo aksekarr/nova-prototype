@@ -166,6 +166,14 @@ export function createAgentSession({ voice, onReplyText = () => {}, onChange = (
       current.conversation?.setMicMuted(value);
       publish({ micMuted: value });
     },
+    // Read the SDK's existing analyser only during a genuine listening gap.
+    // No microphone samples, text or levels are retained or published to UI.
+    currentInputVolume() {
+      if (!current?.connected || current.micMuted || replies.replyOpen
+          || voice.stream.isActive?.() || voice.stream.isAudible()) return 0;
+      const value = current.conversation?.getInputVolume?.();
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+    },
     onFrame() {
       if (current?.connected) publish({ speaking: voice.stream.isAudible() });
     }

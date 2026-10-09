@@ -66,7 +66,7 @@ export function createFace(shapes, reduce) {
     refreshSelection();
   }
 
-  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false, mouthPreview = null) {
+  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false, mouthPreview = null, inputVolume = 0) {
     const newReply = cues?.replyId !== undefined && cues.replyId !== activeReply;
     if (newReply) {
       preview = false;
@@ -146,7 +146,8 @@ export function createFace(shapes, reduce) {
     }
     rendered.smile = 0.05 + cur.smile;
     if (bridgeMix === 1) listeningBridge = null;
-    const pose = head.update(dt, { speaking, envelope, bias: cur });
+    const pose = head.update(dt, { speaking, envelope, bias: cur,
+      listening: automaticEnabled && listening, inputVolume });
     headTime += step;
     beats = head.consumeBeats().map(beat => ({ ...beat, replyId: activeReply,
       position: Math.max(0, (cues?.position ?? 0) - (headTime - beat.time)) }));

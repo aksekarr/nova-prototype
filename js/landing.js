@@ -148,7 +148,8 @@ async function startLanding() {
       },
       updateFace(dt, clock) {
         if (state.mode === 'face' || state.mode === 'nebula') face.update(dt, clock, voice.currentCues(), voice.currentEnvelope(), voice.currentShape(),
-          state.speaking, voice.lastReplyEnd(), viewState.phase === 'present' || viewState.phase === 'listening');
+          state.speaking, voice.lastReplyEnd(), viewState.phase === 'present' || viewState.phase === 'listening',
+          null, viewState.phase === 'listening' ? agent?.currentInputVolume() ?? 0 : 0);
       }
     });
     el.meet.addEventListener('click', () => flow.meet());

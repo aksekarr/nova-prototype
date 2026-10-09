@@ -22,7 +22,7 @@ const complete = id => ({ type: 'agent_response_complete', agent_response_comple
 
 function setup(t, { permissions = [deferred()], loaderGate, connectionGate,
   afterPermissionGate, afterConnectionGate, failContextAt = 0, failInputAfterOutput = false, outputFormat } = {}) {
-  let permissionCalls = 0, clientLoads = 0, contextAttempts = 0, audible = false;
+  let permissionCalls = 0, clientLoads = 0, contextAttempts = 0, audible = false, inputVolume = 0;
   const started = [], sockets = [], connections = [], conversations = [], contexts = [], audioElements = [];
   const handles = [], texts = [], changes = [], flushes = [];
   const media = { getUserMedia() { return permissions[permissionCalls++].promise; } };
@@ -77,6 +77,7 @@ function setup(t, { permissions = [deferred()], loaderGate, connectionGate,
         input: { inputStream: stream, context: inputContext },
         output: { audioElement, context: outputContext },
         volume: 1, micCalls: [], ends: 0,
+        getInputVolume() { return inputVolume; },
         setVolume({ volume }) { this.volume = volume; },
         setMicMuted(value) { this.micCalls.push(value); },
         endSession() { this.ends++; return Promise.resolve(); }
@@ -108,10 +109,11 @@ function setup(t, { permissions = [deferred()], loaderGate, connectionGate,
     clientLoader() { clientLoads++; return loaderGate ? loaderGate.promise.then(() => client) : client; }
   });
   t.after(() => flow.stop());
-  return { flow, host, media, client, permissions, started, sockets, connections, conversations,
+  return { flow, host, media, client, voice, permissions, started, sockets, connections, conversations,
     contexts, audioElements, handles, texts, changes, flushes, originalMedia, originalConnection, nativeSocket, nativeContext, nativeAudio,
     get permissionCalls() { return permissionCalls; }, get clientLoads() { return clientLoads; },
     set audible(value) { audible = value; },
+    set inputVolume(value) { inputVolume = value; },
     async start() {
       const count = started.length, completed = flow.start(CONFIG);
       await until(() => started.length > count);
@@ -478,4 +480,35 @@ test('restored Audio constructor excludes later elements from session cleanup', 
   await until(() => !h.audioElements[0].attached);
   assert.equal(unrelated.attached, true);
   assert.equal(unrelated.pauses, 0);
+});
+
+test('microphone levels are available only in connected, unmuted listening gaps', async t => {
+  const h = setup(t);
+  h.inputVolume = .18;
+  assert.equal(h.flow.currentInputVolume(), 0);
+  await h.connect();
+  assert.equal(h.flow.currentInputVolume(), .18);
+  h.flow.setMicMuted(true);
+  assert.equal(h.flow.currentInputVolume(), 0);
+  h.flow.setMicMuted(false);
+  assert.equal(h.flow.currentInputVolume(), .18);
+  h.audible = true;
+  assert.equal(h.flow.currentInputVolume(), 0);
+  h.audible = false;
+  const incoming = h.started[0].onIncomingEvent;
+  incoming(audio(2));
+  assert.equal(h.flow.currentInputVolume(), 0, 'a transport gap is still Seni’s reply');
+  let queued = true;
+  h.voice.stream.isActive = () => queued;
+  incoming(complete(2));
+  assert.equal(h.flow.currentInputVolume(), 0, 'completion must still allow local audio to drain');
+  queued = false;
+  assert.equal(h.flow.currentInputVolume(), .18);
+  h.conversations[0].getInputVolume = () => NaN;
+  assert.equal(h.flow.currentInputVolume(), 0);
+  h.conversations[0].getInputVolume = () => 5;
+  assert.equal(h.flow.currentInputVolume(), 1);
+  h.conversations[0].getInputVolume = () => .18;
+  h.flow.stop();
+  assert.equal(h.flow.currentInputVolume(), 0);
 });
