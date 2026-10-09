@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 
 // Exercise the actual cue controller without loading unrelated geometry modules.
 // Optional source override lets the same check validate an isolated draft.
@@ -17,7 +18,7 @@ const cueMap = {
   sigh: { kind: 'sigh', pose: 'concern', amount: .8 }
 };
 const cueTiming = {
-  moodAttack: .5, moodRelease: 1, moodMicroSuppression: .4,
+  moodAttack: .5, moodHold: .7, moodRelease: 1, moodMicroSuppression: .4,
   thinkingGaze: .8, thinkingGazeRelease: .3,
   eventAttack: .15, eventRelease: .5, laughMinimum: 1,
   laughExtension: 1, followingWordGap: .3, sighRelease: .8,
@@ -26,7 +27,7 @@ const cueTiming = {
 };
 function create() {
   const control = createCueExpressions();
-  // Deliberately use the default moodHold, as older saved tuning has no key.
+  // Keep a short custom hold to exercise overlaps and corrected timing.
   control.applyTuning({ cueMap, cueTiming, laughAmount: 1, moodAmount: 1 });
   return control;
 }
@@ -196,4 +197,29 @@ test('events still take precedence over moods and an expired mood never returns 
   assert.equal(control.state.blockingEvent, true);
   neutral(at(control, 2.3, cues));
   assert.equal(control.state.blockingEvent, false);
+});
+
+// Read the actual live timing so a stage-only change cannot silently escape this check.
+const stageSource = await readFile(new URL('../js/stage.js', import.meta.url), 'utf8');
+const liveTiming = vm.runInNewContext('(' + stageSource.match(/  cueTiming: (\{[\s\S]*?\n  \}),/)[1] + ')');
+test('live and missing-key mood defaults hold for two full seconds, then release', () => {
+  assert.equal(liveTiming.moodAttack, .5);
+  assert.equal(liveTiming.moodHold, 2);
+  assert.equal(liveTiming.moodRelease, 1);
+  for (const fallback of [false, true]) {
+    const timing = { ...liveTiming };
+    if (fallback) delete timing.moodHold;
+    const control = createCueExpressions();
+    control.applyTuning({ cueMap, cueTiming: timing });
+    const cues = [tag('m1', 'thinking')];
+    close(weight(at(control, .25, cues), 'thinking'), .375);
+    for (const position of [.5, 1.2, 2, 2.5]) {
+      close(weight(at(control, position, cues), 'thinking'), .75);
+    }
+    close(weight(at(control, 3, cues), 'thinking'), .375);
+    neutral(at(control, 3.5, cues));
+  }
+  // All event timing still matches the pre-existing regression fixture.
+  for (const key of ['eventAttack', 'eventRelease', 'laughMinimum', 'laughExtension',
+    'followingWordGap', 'sighRelease']) assert.equal(liveTiming[key], cueTiming[key]);
 });

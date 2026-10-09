@@ -55,6 +55,7 @@ const TUNING = {
   microAmount: 1,
   micro: {
     amplitudes: { smile: 0.16, upperLid: 0.9, lowerLid: 0.45, browL: 0.216, browR: 0.216 },
+    squintGain: 1.45, wideGain: 1.1,
     periods: { drift: [2, 6], quiet: [7, 13] },
     phraseLift: { browL: 0.2, browR: 0.2, upperLid: -0.1, smile: 0.1 },
     phraseAttack: 0.3, phraseRelease: 0.45, blend: 0.4, release: 0.4,
@@ -86,7 +87,7 @@ const TUNING = {
   cueTiming: {
     eventAttack: 0.15, eventRelease: 0.5, laughMinimum: 1,
     laughExtension: 1, followingWordGap: 0.3, sighRelease: 0.8,
-    moodAttack: 0.5, moodHold: 0.7, moodRelease: 1, thinkingGaze: 0.8, thinkingGazeRelease: 0.3,
+    moodAttack: 0.5, moodHold: 2, moodRelease: 1, thinkingGaze: 0.8, thinkingGazeRelease: 0.3,
     questionAttack: 0.15, questionRelease: 0.3, questionPitch: 1.5,
     interruptRelease: 0.4, replyBlend: 0.4, moodMicroSuppression: 0.4
   },

@@ -88,7 +88,7 @@ export function createCueExpressions() {
     blockingEvent = false;
     gestureWindows = [];
     const mood = blank(), event = blank(), question = blank();
-    const attack = seconds('moodAttack', 0.5), hold = seconds('moodHold', 0.7);
+    const attack = seconds('moodAttack', 0.5), hold = seconds('moodHold', 2);
     const recovery = seconds('moodRelease', 1);
     cues.forEach((cue, index) => {
       const mapping = mapCue(cue);
@@ -416,6 +416,8 @@ export function createMicroExpressions() {
       browR: (common + independent * signal(5)) / normalizer };
     for (const key of keys) raw[key] *= quiet * (Number.isFinite(settings.amplitudes?.[key])
       ? settings.amplitudes[key] : key === 'lowerLid' ? 0.1 : 0.08);
+    // Shape neutral lid drift independently in each direction, before phrase lift.
+    raw.upperLid *= value(raw.upperLid >= 0 ? 'squintGain' : 'wideGain', 1);
     return raw;
   }
   function phraseAt(time) {
