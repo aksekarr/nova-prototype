@@ -326,6 +326,7 @@ el.sound.addEventListener('click', function () {
 
 // Dev-only: no controls, client script, or SDK hooks without this exact flag.
 if (params.get('live') === '1') {
+  document.body.classList.add('live-chat');
   const group = document.createElement('div');
   group.id = 'live-group';
   group.className = 'group live-group';

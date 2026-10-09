@@ -72,6 +72,8 @@ body { background: var(--void); color: var(--ink); font-family: var(--mono); ove
   text-align: center; font-size: 1rem; line-height: 1.5; text-wrap: balance;
   color: var(--ink);
 }
+/* Keep live speech text clear of the face; retain connection/status messages. */
+.live-chat .caption:not(.rest) { display: none; }
 .caption .w { opacity: 0.2; transition: opacity 0.12s linear; }
 .caption .w.on { opacity: 1; }
 .caption.rest { color: var(--dim); font-size: 0.85rem; }
