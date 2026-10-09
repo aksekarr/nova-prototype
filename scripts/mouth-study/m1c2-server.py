@@ -58,46 +58,59 @@ document.addEventListener('visibilitychange',()=>__qa.visibilityChanges++);
     if path == 'js/face.js':
         return replace(source, 'mapped: mappedFace.diagnostics,', 'mapped: mappedFace.qa,')
     if path == 'js/voice.js':
-        return replace(source,
-            '  return { preload, speak, stop, currentEnvelope, currentShape, currentCues, lastReplyEnd, setSoundOn, update, stream, getLabLine };',
-            '''  // Temporary QA: expose only context state/time, never text, PCM, IDs or cues.
+        # Extend the factory's public object without repeating its full signature;
+        # the historical baseline has no activate() method, while current does.
+        pattern = r'^  return \{ (?P<members>[^{}\n]*\bpreload\b[^{}\n]*) \};$'
+        def expose_audio(match):
+            return """  // Temporary QA: expose only context state/time, never text, PCM, IDs or cues.
   function qaAudioState(){return {state:ac?.state??'absent',currentTime:ac?.currentTime??null};}
   function qaResumeAudio(){ensureAudio();return ac.resume();}
-  return { preload, speak, stop, currentEnvelope, currentShape, currentCues, lastReplyEnd, setSoundOn, update, stream, getLabLine, qaAudioState, qaResumeAudio };''')
+  return { """ + match['members'] + ', qaAudioState, qaResumeAudio };'
+        source, count = re.subn(pattern, expose_audio, source, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError('M1c2 voice factory hook mismatch')
+        return source
     if path == 'js/tuning.js':
         return source + '\nwindow.__qa.sequenceDefinitions=MOUTH_SEQUENCES;\n'
     if path == 'js/main.js':
         source = replace(source, "mode: 'nebula', modeT: 0, clock: 0", "mode: 'face', modeT: 0, clock: 20")
-        return source + '''
-Object.assign(window.__qa,{face,voice,shapes,state,replayCapture,stopAll});
+        controls = 'replayCapture,stopAll' if old else 'replayCapture:flow.replayCapture,stopAll:flow.stopAll'
+        return source + '\nObject.assign(window.__qa,{face,voice,shapes,state,' + controls + """});
 Object.defineProperty(window.__qa,'mouthLab',{get:()=>mouthLab});
 const {installMouthQA}=await import('/m1c2-browser.js');await installMouthQA(window.__qa);
-'''
+"""
     if path == 'js/stage.js':
         source += '\nwindow.__qa.tuning=TUNING;\n'
         source = replace(source, '  function applyTuning() {', '''  const qa=window.__qa;
   Object.assign(qa,{renderer,camera,points,geometry:geom,uniforms,featureClearance,display:DISPLAY_POS,colours:COL,source:POS});
   function applyTuning() {''')
-        source = replace(source, '    const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);',
+        source = source.replace('headDisplay?.transformPoint(projectPoint);', 'if(!qa.frozen)headDisplay?.transformPoint(projectPoint);')
+        # The current renderer also has frameFormMorph(). Its camera/render calls
+        # are not this face-only harness's hooks. Select the study loop first.
+        marker = '  function frame(nowMs) {'
+        if source.count(marker) != 1:
+            raise ValueError('M1c2 study frame hook mismatch')
+        before, marker, frame = source.partition(marker)
+        frame = replace(frame, '    const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);',
             '    const qaStart=performance.now();\n    const now = nowMs / 1000, elapsed = now - last, dt = qa.frozen ? 1/60 : Math.min(0.05, elapsed);')
-        source = replace(source, '    state.clock += dt;', '    if(!qa.frozen)state.clock += dt;')
-        source = replace(source, '    updateFace(dt, clock);', '''    if(!qa.frozen)updateFace(dt, clock);
+        frame = replace(frame, '    state.clock += dt;', '    if(!qa.frozen)state.clock += dt;')
+        frame = replace(frame, '    updateFace(dt, clock);', '''    if(!qa.frozen)updateFace(dt, clock);
     else if(qa.hold){
       qa.heldStep?.(dt);
       qa.heldMapper.update(20,qa.neutral,{x:0,y:0},1,qa.hold.opening,qa.hold.shape);
       for(let i=0;i<FEATURE_END;i++){FACE[i*3]=shapes.BASE[i*3];FACE[i*3+1]=shapes.BASE[i*3+1];}
     }''')
-        source = replace(source, "    points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);",
+        frame = replace(frame, "    points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);",
             "    points.rotation.x += ((mode === 'face' ? mouse.y * 0.08 : 0) - points.rotation.x) * Math.min(1, dt * 2);\n    if(qa.frozen)points.rotation.set(0,0,0);")
-        source = replace(source, '    if (headDisplay) headDisplay.apply(POS, DISPLAY_POS, headMix);',
+        frame = replace(frame, '    if (headDisplay) headDisplay.apply(POS, DISPLAY_POS, headMix);',
             '    if(qa.frozen)DISPLAY_POS.set(POS);\n    else if (headDisplay) headDisplay.apply(POS, DISPLAY_POS, headMix);')
-        source = source.replace('headDisplay?.transformPoint(projectPoint);', 'if(!qa.frozen)headDisplay?.transformPoint(projectPoint);')
-        source = replace(source, '    camera.lookAt(0, 0, 0);',
+        frame = replace(frame, '    camera.lookAt(0, 0, 0);',
             '    if(qa.frozen){camera.position.x=0;camera.position.y=0;camera.position.z=mapFitDepth;}\n    camera.lookAt(0, 0, 0);')
-        return replace(source, '    composer.render();', '''    composer.render();
+        frame = replace(frame, '    composer.render();', '''    composer.render();
     qa.frame++;
     qa.onRender?.({canvas,dt,clock,frameMs:elapsed*1000,cpu:performance.now()-qaStart,
       warpMs:(qa.frozen?qa.heldMapper?.qa:qa.face?.diagnostics?.mapped)?.qaTime?.value||0});''')
+        return before + marker + frame
     return source
 
 class Handler(SimpleHTTPRequestHandler):

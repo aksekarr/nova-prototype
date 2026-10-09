@@ -1,4 +1,6 @@
 // Development-only transport simulator. All input comes from the voice cache.
+import { MOUTH_CHANNELS } from './speech-mouth.js';
+
 const SAMPLE_RATE = 44100;
 
 function encodePCM(samples, start, end) {
@@ -74,7 +76,7 @@ export function compareSimulation(line, metrics) {
     ? expected.reduce((max, item, i) => Math.max(max, Math.abs(item.start - actual[i].start) * 1000), 0)
     : null;
   const shapeValuesMatch = line.shapes.length === metrics.shapes.length &&
-    line.shapes.every((item, i) => ['w', 'h', 'round', 'close'].every(key =>
+    line.shapes.every((item, i) => MOUTH_CHANNELS.every(key =>
       item.shape[key] === metrics.shapes[i].shape[key]));
   const count = Math.min(line.envelope.length, metrics.envelope.length);
   let envelopeDifference = 0, largestSeamSamples = 0, largestGapMismatchMs = 0, accumulatedGap = 0;

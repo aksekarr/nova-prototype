@@ -6,6 +6,7 @@ const RMS_WINDOW_SECONDS = 0.016;
 const SHAPE_LOOKAHEAD_SECONDS = 0.03;
 const STREAM_SAMPLE_RATE = 44100;
 const STREAM_LEAD_SECONDS = 0.1;
+const AUDIO_ACTIVATION_TIMEOUT_MS = 1500;
 // A short reference history prevents silence / a quiet first consonant from
 // becoming the normalisation peak. It ages out of the running percentile.
 const STREAM_RMS_REFERENCE = 0.12;
@@ -173,6 +174,8 @@ export function createVoice({ caption, readout }) {
   let idleStatus = 'Loading';
   let nextReplyId = 0;
   let lastEnd = null;
+  let audioActivation = null;
+  let preloadStatusVersion = 0;
 
   function showStatus(text) {
     readout.textContent = text;
@@ -188,30 +191,81 @@ export function createVoice({ caption, readout }) {
     gainNode.gain.value = soundOn ? 1 : 0;
     gainNode.connect(ac.destination);
     effect = createVoiceEffect(ac, gainNode);
+    ac.addEventListener?.('statechange', () => {
+      // A stopped audio clock cannot deliver the source's ended event. Let the
+      // caller retry instead of leaving a cached line and its sequence pending.
+      if (speech?.source && ac.state !== 'running') {
+        idleStatus = 'Voice unavailable';
+        finish(speech, true, audioUnavailable());
+      }
+    });
+  }
+
+  function audioUnavailable(cause) {
+    const error = new Error('Audio could not start. Try again.', { cause });
+    error.code = 'AUDIO_UNAVAILABLE';
+    return error;
+  }
+
+  // Call directly from a user gesture, before awaiting any files or animation.
+  // Safari can report interrupted as well as suspended. A fulfilled resume is
+  // insufficient unless the clock is actually running; a pending one is bounded.
+  function activate() {
+    try { ensureAudio(); }
+    catch (error) { return Promise.reject(audioUnavailable(error)); }
+    if (ac.state === 'running') return Promise.resolve();
+    if (ac.state === 'closed') return Promise.reject(audioUnavailable());
+    if (audioActivation) return audioActivation;
+    const attempt = new Promise((resolve, reject) => {
+      const complete = (error) => {
+        clearTimeout(timeout);
+        // Another gesture can have started the clock while resume was pending.
+        if (ac.state === 'running') resolve();
+        else reject(audioUnavailable(error));
+      };
+      const timeout = setTimeout(() => complete(), AUDIO_ACTIVATION_TIMEOUT_MS);
+      try {
+        Promise.resolve(ac.resume()).then(() => complete(), complete);
+      } catch (error) { complete(error); }
+    });
+    audioActivation = attempt.finally(() => { audioActivation = null; });
+    return audioActivation;
   }
 
   // Capture button gestures before their handlers start speech.
   document.addEventListener('click', (event) => {
-    if (event.target.closest('button') && ac && ac.state === 'suspended') {
-      ac.resume().catch(() => {});
+    if (event.target.closest('button') && ac && ac.state !== 'running') {
+      activate().catch(() => {});
     }
   }, true);
 
-  async function preload(ids) {
-    idleStatus = 'Loading';
-    if (!speech && !reply) showStatus(idleStatus);
+  async function preload(ids, { background = false } = {}) {
+    // Warming unrelated lines must not change the current interaction's status.
+    // A later preload, playback or stop also retires this load's status updates.
+    const statusVersion = background || speech || reply ? null : ++preloadStatusVersion;
+    const ownsStatus = () => statusVersion !== null && statusVersion === preloadStatusVersion;
+    if (ownsStatus()) {
+      idleStatus = 'Loading';
+      showStatus(idleStatus);
+    }
     try {
       ensureAudio();
       await Promise.all([effect.ready, ...ids.map((id) => {
-        if (!lines.has(id)) lines.set(id, loadLine(id));
+        if (!lines.has(id)) {
+          const loading = loadLine(id).catch(error => {
+            if (lines.get(id) === loading) lines.delete(id);
+            throw error;
+          });
+          lines.set(id, loading);
+        }
         return lines.get(id);
       })]);
-      idleStatus = 'Silent';
+      if (ownsStatus()) idleStatus = 'Silent';
     } catch (error) {
-      idleStatus = 'Voice unavailable';
+      if (ownsStatus()) idleStatus = 'Voice unavailable';
       throw error;
     } finally {
-      if (!speech && !reply) showStatus(idleStatus);
+      if (ownsStatus() && !speech && !reply) showStatus(idleStatus);
     }
   }
 
@@ -232,7 +286,7 @@ export function createVoice({ caption, readout }) {
     };
   }
 
-  function finish(line, interrupted = false) {
+  function finish(line, interrupted = false, error = null) {
     if (speech !== line) return;
     lastEnd = { replyId: line.replyId, reason: interrupted ? 'interrupted' : 'completed',
       position: line.source ? Math.max(0, ac.currentTime - line.startedAt) : 0,
@@ -241,12 +295,13 @@ export function createVoice({ caption, readout }) {
     envelope = 0;
     if (line.source) {
       line.source.onended = null;
-      line.source.stop();
+      // start() can fail before the source is scheduled.
+      try { line.source.stop(); } catch {}
       line.source.disconnect();
     }
     line.spans.forEach(span => span.classList.add('on'));
     showStatus(idleStatus);
-    line.resolve();
+    line.resolve(error ? { status: 'unavailable', error } : { status: interrupted ? 'stopped' : 'completed' });
   }
 
   function speak(id) {
@@ -255,9 +310,15 @@ export function createVoice({ caption, readout }) {
       const line = { source: null, spans: [], resolve, replyId: ++nextReplyId };
       speech = line;
       const loaded = lines.get(id);
-      if (!loaded) { finish(line); return; }
-      Promise.all([loaded, effect.ready]).then(([data]) => {
+      if (!loaded) {
+        idleStatus = 'Voice unavailable';
+        finish(line, true, new Error(`Voice line has not been loaded: ${id}`));
+        return;
+      }
+      Promise.all([loaded, effect.ready, activate()]).then(([data]) => {
         if (speech !== line) return;
+        if (ac.state !== 'running') throw audioUnavailable();
+        idleStatus = 'Silent';
         caption.className = 'caption';
         caption.textContent = '';
         line.spans = data.words.map(({ text }) => {
@@ -280,14 +341,20 @@ export function createVoice({ caption, readout }) {
         line.source.start(line.startedAt);
         showStatus('Speaking');
         update(0);
-      }).catch(() => {
+      }).catch(error => {
+        if (speech !== line) return;
         idleStatus = 'Voice unavailable';
-        finish(line);
+        finish(line, true, error);
       });
     });
   }
 
   function stop() {
+    preloadStatusVersion++;
+    if (idleStatus === 'Loading') {
+      idleStatus = 'Silent';
+      if (!speech && !reply) showStatus(idleStatus);
+    }
     stopReferenceClip();
     if (speech) finish(speech, true);
     if (reply) finishStream(reply, true);
@@ -632,5 +699,5 @@ export function createVoice({ caption, readout }) {
   // The simulator reuses the existing preload/cache path, with no extra fetches.
   function getLabLine(id) { return lines.get(id); }
 
-  return { preload, speak, stop, currentEnvelope, currentShape, currentCues, lastReplyEnd, setSoundOn, update, stream, getLabLine };
+  return { preload, activate, speak, stop, currentEnvelope, currentShape, currentCues, lastReplyEnd, setSoundOn, update, stream, getLabLine };
 }

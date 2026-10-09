@@ -11,6 +11,12 @@ SPEC = importlib.util.spec_from_file_location('previous_qa', TOOLS / 'm1c2-serve
 old = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(old)
 
+def instrument(path, source):
+    data = old.instrument(path, source)
+    if path == 'js/main.js':
+        data = old.replace(data, '/m1c2-browser.js', '/m1c3-browser.js')
+    return data
+
 class Handler(old.Handler):
     def do_GET(self):
         path = urlsplit(self.path).path.lstrip('/') or 'index.html'
@@ -19,9 +25,7 @@ class Handler(old.Handler):
         if path.startswith(('refs/live/', 'baseline/')):
             return self.send_error(404)
         if path in old.HOOKED:
-            data = old.instrument(path, (old.ROOT / path).read_text())
-            if path == 'js/main.js':
-                data = data.replace('/m1c2-browser.js', '/m1c3-browser.js')
+            data = instrument(path, (old.ROOT / path).read_text())
             return self.data(data.encode(), self.guess_type(path))
         return super().do_GET()
 

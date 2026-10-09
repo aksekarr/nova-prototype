@@ -3,12 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
-// Exercise the actual cue controller without loading unrelated geometry modules.
-// Optional source override lets the same check validate an isolated draft.
-const source = await readFile(process.env.NOVA_CUE_FACE_SOURCE
-  || new URL('../js/face.js', import.meta.url), 'utf8');
-const { createCueExpressions } = await import(`data:text/javascript;base64,${Buffer.from(
-  source.replace(/^import .*;\n/gm, '')).toString('base64')}`);
+import { createCueExpressions } from '../js/face-expressions.js';
+
 const cueMap = {
   thinking: { kind: 'mood', pose: 'thinking', amount: .75 },
   warm: { kind: 'mood', pose: 'content', amount: 1 },

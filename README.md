@@ -23,6 +23,26 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 - `spike/agent.html`: live-agent test bench. It connects to the ElevenLabs agent (paste the agent ID each run; it is never stored) and logs timing, text and output volume. Downloaded logs contain your own speech, so never commit them.
 
+## Code organisation and checks
+
+`js/main.js` wires the page, face and renderer together. The existing cached demo
+and speech-lab interactions live in `js/study-flow.js`; `js/live.js` is loaded only
+with `?live=1`. Pure pose and expression controllers live in
+`js/face-expressions.js`, with their existing exports also available from
+`js/face.js`.
+
+Run the local regression suite with
+`node --test scripts/*.test.mjs scripts/mouth-study/*.test.mjs`. No package install
+or build step is required. Tests use synthetic voice/provider boundaries and do
+not contact ElevenLabs or request a microphone.
+
+The live adapter still needs a verified reply boundary before product integration:
+the pinned SDK reports “listening” for both a completed reply and an empty output
+queue during a transport gap. The local cached voice flow does not use that path.
+
+Some legacy code in `js/shapes.js` deliberately consumes random draws to preserve
+the approved particle layouts. Keep that order intact during future cleanup.
+
 ## Docs
 
 - `docs/CHARACTER.md`: Syra's public character sheet and live system prompt.

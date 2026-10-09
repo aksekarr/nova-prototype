@@ -37,7 +37,7 @@ export function createMappedFace(shapes, reduce) {
     SPARK_RANDOM, P1, MAPS, MAP_SCALE, STAR_TINT, STAR_SIZE,
     FIELD, PROTECT } = shapes;
   const landmarks = MAPS.landmarks, colour = MAPS.colour;
-  const count = I.face[1], weights = new Float32Array(count * 8);
+  const count = I.face[1], weights = new Float32Array(count * 6);
   // Separate short passes let Safari optimize the hot loops promptly. These
   // reusable double-precision intermediates keep the same sampling arithmetic
   // without allocating objects for individual stars or individual frames.
@@ -95,7 +95,7 @@ export function createMappedFace(shapes, reduce) {
   // Spatial falloffs are fixed and shared by all frames; there are no
   // per-frame allocations or landmark searches in the particle loop.
   for (let i = 0; i < count; i++) {
-    const u = UV[i * 2], v = UV[i * 2 + 1], k = i * 8;
+    const u = UV[i * 2], v = UV[i * 2 + 1], k = i * 6;
     weights[k] = falloff(u - mouth[0], mouthHalf + 0.01, mouthHalf + 0.09)
       * falloff(v - mouth[1], 0.074, 0.18);
     weights[k + 1] = falloff(v - mouth[1], 0.026, 0.12);
@@ -113,14 +113,12 @@ export function createMappedFace(shapes, reduce) {
     const nx = (u - noseU) / 0.055, ny = (v - noseV) / 0.16;
     noseLight[i] = Math.max(0, 1 - nx * nx - ny * ny);
     for (let side = 0; side < 2; side++) {
-      const eye = eyes[side], brow = brows[side];
+      const eye = eyes[side];
       if (Math.abs(u - eye[0]) < 0.065 && Math.abs(v - eye[1]) < 0.085) eyeMembers[side].push(i);
       weights[k + 2 + side] = falloff(u - eye[0], 0.035, 0.102)
         * falloff(v - eye[1], 0.032, 0.082);
       const ix = (u - eye[0]) / 0.055, iy = (v - eye[1]) / 0.032;
       weights[k + 4 + side] = Math.pow(Math.max(0, 1 - ix * ix - iy * iy), 2);
-      weights[k + 6 + side] = falloff(u - brow[0], 0.075, 0.155)
-        * falloff(v - brow[1], 0.025, 0.092);
       // A soft shadow ring leaves the photographed lids and iris untouched.
       const socket = falloff(u - eye[0], 0.052, 0.105) * falloff(v - eye[1], 0.035, 0.08);
       const aperture = falloff(u - eye[0], 0.042, 0.073) * falloff(v - eye[1], 0.027, 0.052);
@@ -184,11 +182,11 @@ export function createMappedFace(shapes, reduce) {
     for (let side = 0; side < 2; side++) {
       const eye = eyes[side], p = side * 5;
       const weight = index < 0 ? falloff(u - eye[0], 0.035, 0.102)
-        * falloff(v - eye[1], 0.032, 0.082) : weights[index * 8 + 2 + side];
+        * falloff(v - eye[1], 0.032, 0.082) : weights[index * 6 + 2 + side];
       if (weight > 0 || (eyePose[p + 4] !== 0 && Math.abs(u - eye[0]) < 0.15 && Math.abs(v - eye[1]) < 0.22)) {
         const ix = (u - eye[0]) / 0.055, iy = (v - eye[1]) / 0.032;
         const iris = index < 0 ? Math.pow(Math.max(0, 1 - ix * ix - iy * iy), 2)
-          : weights[index * 8 + 4 + side];
+          : weights[index * 6 + 4 + side];
         if (eyePose[p + 4] === 0) {
           const upper = lids[side], lower = lowerLids[side];
           const shift = (lower - upper) * (1 - open), targetUpper = upper + shift;
@@ -292,7 +290,7 @@ export function createMappedFace(shapes, reduce) {
     const contourShoulder = 0.12 * Math.sqrt(contour), contourPower = 0.65 - contour * 0.15;
     const contourEdge = Math.pow(contourShoulder, contourPower);
     for (let i = 0; i < count; i++) {
-      const j = i * 3, k = i * 8;
+      const j = i * 3, k = i * 6;
       const u = UV[i * 2], v = UV[i * 2 + 1];
       let su = u, sv = v, eyeGain = 1, eyeFocus = 0;
       let lipFocus = 0, innerLight = 0, cavity = 0;

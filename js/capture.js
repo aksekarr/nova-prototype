@@ -12,15 +12,17 @@ export function createCaptureRecorder(stream, { onChange = () => {} } = {}) {
   let enabled = false, current = null;
 
   function settle(record) {
-    if (!record || record.finished || !record.handle.inspect().finished) return;
+    if (!record || record.finished) return;
+    const metrics = record.handle.inspect();
+    if (!metrics.finished) return;
     record.finished = true;
-    if (!record.reply) return;
-    record.reply.interrupted = record.handle.inspect().interrupted;
+    record.reply.interrupted = metrics.interrupted;
     replies.push(record.reply);
     onChange();
   }
 
   function invoke(record, type, call, args) {
+    if (!record) return call(...args);
     const arrivedAt = performance.now();
     settle(record);
     if (record?.reply && !record.finished) {
@@ -43,10 +45,16 @@ export function createCaptureRecorder(stream, { onChange = () => {} } = {}) {
     }
     const startedAt = performance.now();
     const handle = original.begin.apply(stream, args);
+    // Capture is chosen at reply start. Ordinary playback keeps its original
+    // handle and never constructs full diagnostic snapshots per packet.
+    if (!enabled) {
+      current = null;
+      return handle;
+    }
     const record = {
       handle, startedAt, finished: false,
-      reply: enabled ? { text: '', interrupted: false,
-        events: [{ t: 0, type: 'begin', data: null }] } : null
+      reply: { text: '', interrupted: false,
+        events: [{ t: 0, type: 'begin', data: null }] }
     };
     current = record;
     return Object.assign({}, handle, Object.fromEntries(METHODS.map(type => [type,
