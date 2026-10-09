@@ -168,7 +168,7 @@ const TUNING = {
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null }) {
   const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const hasFace = Boolean(shapes.MAPS);
   const canvas = document.getElementById('stage');
@@ -200,6 +200,13 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   const frameRates = new Float32Array(N);
   const screenPoints = new Float32Array(N * 2);
   const frameTargets = new Float32Array(N * 3);
+  // This display path is opt-in for the explicit face/orbit study. The voice
+  // stage retains its existing local simulation and lifecycle.
+  const formFaceColours = formMorph ? new Float32Array(FACE_COL) : null;
+  let formMode = state.mode, formStarted = false, formAppearance = 1, formDepth = 0, formGas = 1.15;
+  let formGasStart = formGas, formWrap = 1, formWrapStart = 1;
+  const formClearStart = formMorph ? new Float32Array(4) : null;
+  const formFeatureStart = formMorph ? new Float32Array(16) : null;
   const clipMatrix = new THREE.Matrix4();
   const clearCenter = new THREE.Vector2(0.5, 0.5);
   const clearExtent = new THREE.Vector2(0.1, 0.2);
@@ -366,6 +373,14 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     stars.resize(w, h, pixelRatio, camera);
   }
   resize();
+  if (formMorph) {
+    POS.set(FACE); COL.set(FACE_COL);
+    headDisplay.apply(POS, DISPLAY_POS, 1);
+    uniforms.faceDisplayMix.value = 1;
+    uniforms.nebulaGlints.value = 0;
+    cameraDepth.fill(mapFitDepth);
+    camera.position.z = mapFitDepth;
+  }
   window.addEventListener('resize', resize);
 
   const mouse = { x: 0, y: 0 };
@@ -401,11 +416,19 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     trails.enabled = strength > 0;
   }
 
-  function projectClearance() {
+  function tiltPreviewPoint() {
+    if (!formMorph) return;
+    const { x, y, z } = projectPoint;
+    const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(formTilt), sx = Math.sin(formTilt);
+    const tz = z * cy - x * sy;
+    projectPoint.set(x * cy + z * sy, y * cx - tz * sx, y * sx + tz * cx);
+  }
+
+  function projectClearance(settledFace = state.mode === 'face') {
     camera.updateMatrixWorld();
     points.updateMatrixWorld();
     clipMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(points.matrixWorld);
-    if (state.mode === 'face') {
+    if (settledFace) {
       // Only these small feature islands exclude gas. The temples, cheeks and
       // fraying silhouette remain part of the surrounding cosmic field.
       for (let i = 0; i < featurePositions.length; i++) {
@@ -414,14 +437,17 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         const z = (sampleScalar(shapes.MAPS.depth, u, v) - 0.5) * TUNING.depthAmount;
         projectPoint.set(x, y, z);
         headDisplay?.transformPoint(projectPoint);
+        tiltPreviewPoint();
         projectPoint.applyMatrix4(clipMatrix);
         const sx = projectPoint.x * 0.5 + 0.5, sy = projectPoint.y * 0.5 + 0.5;
         projectPoint.set(x + rx * scale, y, z);
         headDisplay?.transformPoint(projectPoint);
+        tiltPreviewPoint();
         projectPoint.applyMatrix4(clipMatrix);
         const rightX = projectPoint.x * 0.5 + 0.5 - sx, rightY = projectPoint.y * 0.5 + 0.5 - sy;
         projectPoint.set(x, y + ry * scale, z);
         headDisplay?.transformPoint(projectPoint);
+        tiltPreviewPoint();
         projectPoint.applyMatrix4(clipMatrix);
         featureClearance[i].set(sx, sy,
           Math.hypot(rightX, projectPoint.x * 0.5 + 0.5 - sx),
@@ -429,6 +455,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       }
       projectPoint.set(0, 0, 0);
       headDisplay?.transformPoint(projectPoint);
+      tiltPreviewPoint();
       projectPoint.applyMatrix4(clipMatrix);
       clearCenter.set(projectPoint.x * 0.5 + 0.5, projectPoint.y * 0.5 + 0.5);
       clearExtent.set(TUNING.faceFrame / camera.aspect * 0.53, TUNING.faceFrame * 0.6);
@@ -500,6 +527,101 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     mapFitDepth = Math.max(4, fitFormHeight(height, TUNING.faceFrame, FEATURE_END), width);
   }
 
+  function frameFormMorph(dt, elapsed, mode, clock) {
+    const changed = mode !== formMode;
+    if (changed) {
+      // Preview vertices are always in display coordinates, including their
+      // head and pointer rotation. Snapshot the exact last rendered frame.
+      formMorph.begin(DISPLAY_POS, COL, clock, { reverse: mode === 'face' });
+      formMode = mode; formStarted = true;
+      formAppearance = uniforms.faceDisplayMix.value;
+      formDepth = camera.position.z;
+      formGasStart = formGas; formWrapStart = formWrap;
+      formClearStart[0] = clearCenter.x; formClearStart[1] = clearCenter.y;
+      formClearStart[2] = clearExtent.x; formClearStart[3] = clearExtent.y;
+      for (let i = 0; i < featureClearance.length; i++) featureClearance[i].toArray(formFeatureStart, i * 4);
+    }
+    let targetPositions, targetColours;
+    if (mode === 'face') {
+      const fastColour = 1 - Math.exp(-dt / 0.018);
+      for (let i = 0, j = 0; i < N; i++, j += 3) {
+        const k = 1 - Math.pow(1 - (i < FEATURE_END ? 0.45 : RATE[i]), dt * 60);
+        if (shapes.RECYCLED?.[i]) {
+          POS[j] = FACE[j]; POS[j + 1] = FACE[j + 1]; POS[j + 2] = FACE[j + 2];
+          formFaceColours[j] = formFaceColours[j + 1] = formFaceColours[j + 2] = 0;
+        }
+        for (let c = 0; c < 3; c++) {
+          POS[j + c] += (FACE[j + c] - POS[j + c]) * k;
+          formFaceColours[j + c] += (FACE_COL[j + c] - formFaceColours[j + c]) * (i < FEATURE_END ? fastColour : k);
+        }
+      }
+      headDisplay.apply(POS, frameTargets, 1);
+      rotY += (mouse.x * 0.22 - rotY) * Math.min(1, dt * 2);
+      // Bake the same pointer tilt into the live target. The Points object
+      // stays at identity, so no head transform is applied twice on reversal.
+      formTilt += (mouse.y * 0.08 - formTilt) * Math.min(1, dt * 2);
+      const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(formTilt), sx = Math.sin(formTilt);
+      for (let j = 0; j < N * 3; j += 3) {
+        const x = frameTargets[j], y = frameTargets[j + 1], z = frameTargets[j + 2];
+        const tz = z * cy - x * sy;
+        frameTargets[j] = x * cy + z * sy;
+        frameTargets[j + 1] = y * cx - tz * sx;
+        frameTargets[j + 2] = y * sx + tz * cx;
+      }
+      targetPositions = frameTargets; targetColours = formFaceColours;
+    } else {
+      targetPositions = orbital.positions; targetColours = orbital.colours;
+    }
+    if (formStarted && (formMorph.active || mode === 'orbit')) {
+      formMorph.sample(clock, targetPositions, targetColours);
+      DISPLAY_POS.set(formMorph.positions); COL.set(formMorph.colours);
+    } else {
+      DISPLAY_POS.set(targetPositions); COL.set(targetColours);
+    }
+    const progress = formStarted ? formMorph.progress : 1;
+    const ease = progress * progress * progress * (10 + progress * (-15 + progress * 6));
+    uniforms.faceDisplayMix.value = formStarted
+      ? formAppearance + ((mode === 'face' ? 1 : 0) - formAppearance) * ease : 1;
+    geom.attributes.position.needsUpdate = true;
+    geom.attributes.color.needsUpdate = true;
+    const orbitSlope = slope * Math.min(0.84, camera.aspect * 0.84);
+    const targetDepth = mode === 'face' ? mapFitDepth : orbital.bounds.radius * Math.sqrt(1 + 1 / (orbitSlope * orbitSlope));
+    camera.position.z = formMorph.active ? formDepth + (targetDepth - formDepth) * ease
+      : camera.position.z + (targetDepth - camera.position.z) * Math.min(1, dt * 3);
+    camera.position.x += (mouse.x * 0.6 - camera.position.x) * Math.min(1, dt * 1.5);
+    camera.position.y += (-mouse.y * 0.4 - camera.position.y) * Math.min(1, dt * 1.5);
+    uniforms.focusDistance.value = camera.position.z;
+    camera.lookAt(0, 0, 0);
+    // Fade the atmosphere from its exact current mask. The destination uses
+    // the moving orbital silhouette or the fully posed face landmarks.
+    projectClearance(mode === 'face');
+    if (formMorph.active) {
+      clearCenter.set(formClearStart[0] + (clearCenter.x - formClearStart[0]) * ease,
+        formClearStart[1] + (clearCenter.y - formClearStart[1]) * ease);
+      clearExtent.set(formClearStart[2] + (clearExtent.x - formClearStart[2]) * ease,
+        formClearStart[3] + (clearExtent.y - formClearStart[3]) * ease);
+      for (let i = 0; i < featureClearance.length; i++) {
+        const feature = featureClearance[i], j = i * 4;
+        feature.set(formFeatureStart[j] + (feature.x - formFeatureStart[j]) * ease,
+          formFeatureStart[j + 1] + (feature.y - formFeatureStart[j + 1]) * ease,
+          formFeatureStart[j + 2] + (feature.z - formFeatureStart[j + 2]) * ease,
+          formFeatureStart[j + 3] + (feature.w - formFeatureStart[j + 3]) * ease);
+      }
+    }
+    formWrap = formStarted ? formWrapStart + ((mode === 'face' ? 1 : 0) - formWrapStart) * ease : 1;
+    const targetGas = mode === 'face' ? 0.25 + TUNING.gasWrap * 0.9 : 0.3;
+    formGas = formStarted ? formGasStart + (targetGas - formGasStart) * ease : targetGas;
+    stars.update(clock, reduce);
+    gas.update(dt, clock * (reduce ? 0.4 : 1), clock * 0.025, formGas, 1, 0, clearCenter, clearExtent,
+      formWrap * Math.min(1, TUNING.gasWrap), featureClearance);
+    gas.render(renderer);
+    const trail = reduce || !formMorph.active ? 0 : 0.48 * Math.sin(Math.PI * progress) ** 2;
+    trails.uniforms.damp.value = trail > 0 && trails.enabled && !changed ? Math.pow(trail, elapsed * 60) : 0;
+    trails.enabled = trail > 0;
+    composer.render();
+  }
+  let formTilt = 0;
+
   function frame(nowMs) {
     const now = nowMs / 1000, elapsed = now - last, dt = Math.min(0.05, elapsed);
     last = now;
@@ -508,6 +630,11 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     onFrame(dt, clock);
     updateFace(dt, clock);
     if (mode === 'orbit') orbital.update(clock);
+    if (formMorph) {
+      frameFormMorph(dt, elapsed, mode, clock);
+      requestAnimationFrame(frame);
+      return;
+    }
 
     const speed = reduce ? 0.4 : 1;
     const aN = clock * 0.025 * speed, cN = Math.cos(aN), sN = Math.sin(aN);

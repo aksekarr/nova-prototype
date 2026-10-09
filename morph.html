@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seni · Changing form</title>
+<link rel="stylesheet" href="./css/nova.css">
+<link rel="stylesheet" href="./css/orbit.css">
+<style>
+.orbit-controls { gap: 8px; }
+.orbit-controls button { min-width: 96px; }
+.orbit-controls button[aria-pressed="true"] { border-color: rgba(167,214,255,.65); color: #eef5ff; background: rgba(89,136,184,.14); }
+#form-status { margin: 4px 0 0; color: var(--dim); font-size: .68rem; letter-spacing: .06em; }
+</style>
+<script type="importmap">{"imports":{"three":"./js/vendor/three.module.js","three/addons/":"./js/vendor/addons/"}}</script>
+<script type="module" src="./js/morph-preview.js"></script>
+</head>
+<body class="orbital-study">
+<canvas id="stage" aria-label="Seni’s particles changing between her face and an orbital star"></canvas>
+<header class="orbit-hud">
+  <p class="mark">SENI<small>Changing form</small></p>
+  <p id="form-status" role="status">Forming Seni…</p>
+</header>
+<footer class="orbit-controls" aria-label="Choose Seni’s form">
+  <button data-form="face" type="button" aria-pressed="true" disabled>Face</button>
+  <button data-form="orbit" type="button" aria-pressed="false" disabled>Orbit</button>
+</footer>
+</body>
+</html>
