@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createGas } from './gas.js';
 import { createStars } from './stars.js';
+import { makeMouthPresets } from './speech-mouth.js';
 import { sampleScalar } from './facesample.js';
 import { FLANGER_DEFAULTS, setFlangerTuning } from './flanger.js';
 
@@ -89,25 +90,8 @@ const TUNING = {
     questionAttack: 0.15, questionRelease: 0.3, questionPitch: 1.5,
     interruptRelease: 0.4, replyBlend: 0.4, moodMicroSuppression: 0.4
   },
-  // Mouth lab vocabulary only; speech retains its existing letter mapping.
-  // cup: inward corners/full forward lips; square: flatter CH/SH opening;
-  // tuck: raised lower lip for F/V; oval: slit-to-oval aperture contour.
-  visemes: {
-    REST: { w: 1, h: 0, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0 },
-    PP:   { w: 0.95, h: 1, round: 0, close: 1, cup: 0, square: 0, tuck: 0, oval: 0 },
-    FF:   { w: 1, h: 0.12, round: 0, close: 0, cup: 0, square: 0, tuck: 1, oval: 0 },
-    DD:   { w: 1.08, h: 0.25, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0 },
-    SS:   { w: 1.08, h: 0.14, round: 0, close: 0, cup: 0, square: 0.12, tuck: 0, oval: 0 },
-    CH:   { w: 0.92, h: 0.35, round: 0.2, close: 0, cup: 0.2, square: 0.3, tuck: 0, oval: 0 },
-    RR:   { w: 0.80, h: 0.28, round: 0.8, close: 0, cup: 0.6, square: 0, tuck: 0, oval: 0.4 },
-    AA:   { w: 1.12, h: 1.4, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.24 },
-    UH:   { w: 1.02, h: 1.0, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.3 },
-    E:    { w: 1.12, h: 0.72, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.32 },
-    EE:   { w: 1.22, h: 0.36, round: 0, close: 0, cup: 0, square: 0, tuck: 0, oval: 0.08 },
-    OH:   { w: 0.90, h: 0.85, round: 0.5, close: 0, cup: 0.3, square: 0, tuck: 0, oval: 0.6 },
-    OH_END: { w: 0.74, h: 0.2, round: 1, close: 0, cup: 0.9, square: 0, tuck: 0, oval: 0.9 },
-    OU:   { w: 0.70, h: 0.14, round: 1, close: 0, cup: 1, square: 0, tuck: 0, oval: 1 }
-  },
+  // Fresh lab settings share the live speech defaults without mutating the driver.
+  visemes: makeMouthPresets(),
   eyePoses: {
     content: {
       smile: 0.45, browL: 0, browR: 0, tilt: 0, upperLid: 0.45,

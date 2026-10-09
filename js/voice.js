@@ -1,4 +1,5 @@
 import { createVoiceEffect, stopReferenceClip } from './flanger.js';
+import { MOUTH_CHANNELS, makeMouthPresets, buildShapeTimeline } from './speech-mouth.js';
 
 const ENVELOPE_HZ = 60;
 const RMS_WINDOW_SECONDS = 0.016;
@@ -8,46 +9,10 @@ const STREAM_LEAD_SECONDS = 0.1;
 // A short reference history prevents silence / a quiet first consonant from
 // becoming the normalisation peak. It ages out of the running percentile.
 const STREAM_RMS_REFERENCE = 0.12;
-const SHAPE_PRESETS = {
-  rest: { w: 1, h: 1, round: 0, close: 0 },
-  open: { w: 1, h: 1.25, round: 0, close: 0 },
-  wide: { w: 1.22, h: 0.55, round: 0, close: 0 },
-  round: { w: 0.62, h: 1.05, round: 1, close: 0 },
-  closed: { w: 0.95, h: 1, round: 0, close: 1 },
-  teeth: { w: 1, h: 0.3, round: 0, close: 0 }
-};
-const CHARACTER_SHAPES = {
-  m: 'closed', b: 'closed', p: 'closed',
-  f: 'teeth', v: 'teeth',
-  o: 'round', u: 'round', w: 'round', q: 'round',
-  e: 'wide', i: 'wide', y: 'wide',
-  a: 'open'
-};
-
-function buildShapeTimeline({ alignment }) {
-  const timeline = [];
-  let inTag = false;
-  alignment.characters.forEach((character, i) => {
-    for (const char of character) {
-      if (char === '[') inTag = true;
-      else if (char === ']') inTag = false;
-      else if (!inTag) {
-        const name = CHARACTER_SHAPES[char.toLowerCase()] ||
-          (/[\s\p{P}]/u.test(char) ? 'rest' : null);
-        if (name) timeline.push({
-          start: alignment.character_start_times_seconds[i],
-          shape: SHAPE_PRESETS[name]
-        });
-      }
-    }
-  });
-  for (let i = 0; i + 1 < timeline.length; i++) {
-    if (timeline[i].shape.close) {
-      timeline[i + 1].start = Math.max(timeline[i + 1].start, timeline[i].start + 0.07);
-    }
-  }
-  return timeline;
-}
+const SHAPE_PRESETS = makeMouthPresets();
+SHAPE_PRESETS.REST.h = 1;
+// Preserve the original neutral input to silent facial expressions.
+const IDLE_SHAPE = { ...SHAPE_PRESETS.REST, h: 1 };
 
 function buildEnvelope(buffer) {
   const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
@@ -203,9 +168,8 @@ export function createVoice({ caption, readout }) {
   let reply = null;
   let soundOn = true;
   let envelope = 0;
-  // Speech still uses the existing four-channel driver and its single smoother.
-  // The Mouth lab's additional channels are opt-in and never enter that driver.
-  const shape = { ...SHAPE_PRESETS.rest, cup: 0, square: 0, tuck: 0, oval: 0 };
+  // One smoother owns every speech mouth channel, including the sculpted vocabulary.
+  const shape = { ...IDLE_SHAPE };
   let idleStatus = 'Loading';
   let nextReplyId = 0;
   let lastEnd = null;
@@ -264,7 +228,7 @@ export function createVoice({ caption, readout }) {
     return {
       buffer, text: data.text, alignment: data.alignment,
       words: buildWords(data), envelope: buildEnvelope(buffer),
-      shapes: buildShapeTimeline(data), cues: buildCueTimeline(data.text, data.alignment)
+      shapes: buildShapeTimeline(data, { presets: SHAPE_PRESETS }), cues: buildCueTimeline(data.text, data.alignment)
     };
   }
 
@@ -414,9 +378,10 @@ export function createVoice({ caption, readout }) {
     const partialTag = leadingTags && (unfinishedTag || (close >= 0 && (open < 0 || close < open)));
     const parsed = partialTag ? {
       characters: ['[', ...alignment.characters],
-      character_start_times_seconds: [0, ...alignment.character_start_times_seconds]
+      character_start_times_seconds: [0, ...alignment.character_start_times_seconds],
+      character_end_times_seconds: [0, ...alignment.character_end_times_seconds]
     } : alignment;
-    line.shapes = buildShapeTimeline({ alignment: parsed });
+    line.shapes = buildShapeTimeline({ alignment: parsed, text: line.text }, { presets: SHAPE_PRESETS, ended: line.ended });
     let visible = '', inTag = false;
     const times = [];
     parsed.characters.forEach((character, i) => {
@@ -595,7 +560,7 @@ export function createVoice({ caption, readout }) {
   };
 
   function update(dt) {
-    let targetShape = SHAPE_PRESETS.rest;
+    let targetShape = IDLE_SHAPE;
     if (reply) {
       const { position, audible } = streamPosition(reply, ac.currentTime);
       const target = audible ? reply.envelope[Math.floor(position * ENVELOPE_HZ)] || 0 : 0;
@@ -631,7 +596,7 @@ export function createVoice({ caption, readout }) {
       }
       if (speech.shapeIndex >= 0) targetShape = shapes[speech.shapeIndex].shape;
     }
-    for (const key of ['w', 'h', 'round', 'close']) {
+    for (const key of MOUTH_CHANNELS) {
       const timeConstant = key === 'close' ? 0.012 : 0.045;
       shape[key] += (targetShape[key] - shape[key]) * (1 - Math.exp(-dt / timeConstant));
       // Settle exactly on the preset once the remaining difference is invisible.

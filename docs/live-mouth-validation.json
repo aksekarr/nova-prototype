@@ -1,0 +1,106 @@
+{
+  "ready": true,
+  "complete": true,
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.2 Safari/605.1.15",
+  "frames": 949,
+  "audibleFrames": 946,
+  "finite": true,
+  "max": {
+    "w": 1.2139593525898917,
+    "h": 1.3621407500613782,
+    "round": 0.9982629301083707,
+    "close": 0.9998765901959134,
+    "cup": 0.9928247412441044,
+    "square": 0.28830293412765406,
+    "tuck": 0.9479502639778999,
+    "oval": 0.9901524977381084
+  },
+  "min": {
+    "w": 0.6248528010009553,
+    "h": 0.14481679414075116,
+    "round": 0,
+    "close": 0,
+    "cup": 0,
+    "square": 0,
+    "tuck": 0,
+    "oval": 0
+  },
+  "labSuspendedThroughout": true,
+  "rendererReceivedSculptedChannels": true,
+  "maxPosition": 18.71977324263038,
+  "wordWindows": {
+    "duck": {
+      "frames": 11,
+      "maxRound": 0,
+      "maxCup": 0,
+      "maxOpening": 0.6226783289815833
+    },
+    "touch": {
+      "frames": 6,
+      "maxRound": 0,
+      "maxCup": 0,
+      "maxOpening": 0.5364072424719334
+    },
+    "moon": {
+      "frames": 7,
+      "maxRound": 0.9828655918842735,
+      "maxCup": 0.9828655918842735,
+      "maxOpening": 0.7400661314537074
+    }
+  },
+  "interrupted": false,
+  "audio": {
+    "state": "running",
+    "currentTime": 20.628027210884355
+  },
+  "finalShape": {
+    "w": 1,
+    "h": 1,
+    "round": 0,
+    "close": 0,
+    "cup": 0,
+    "square": 0,
+    "tuck": 0,
+    "oval": 0
+  },
+  "finalEnvelope": 0,
+  "finalLabMode": "suspended",
+  "lastEnd": "completed",
+  "sourceHashes": {
+    "js/capture.js": "018f38427181c8fa23e854b858c2aa0ca2a21cb75dc69152fcf7a78eedd48fad",
+    "js/face.js": "7279ebcd1c1bb4d7c7f34a63650767f030c40043a96f38fb4865c535d18e6eb2",
+    "js/facefield.js": "a3bf536c1205b7b1173dc9e769ee0a757e10210ae46a523f3ba80efb9050225b",
+    "js/facehead.js": "30dbe9b787fc52827f65905a2bf1a87ab9e809981e0b13d2fb18b809147c19e2",
+    "js/facemap.js": "f2a38647e98ebe24c64361dda9f83bc5247f497b683448ff1aa00567d490f595",
+    "js/facemotion.js": "ddc3882a9da9510c932bb5ee8ccb206f06e595c204fd8e21c42202b0517a73c4",
+    "js/facesample.js": "f0b94451adeecdfec6c132fa8b73732ee15cb267c57c5cfa2a54a53beb4ed74a",
+    "js/facewarp.js": "a9766cb0510e4bd75538431bd30afa5a0cd54a0b32fb7233e5a0986e9c6a79a6",
+    "js/flanger-worklet.js": "bff1066d95a93232402a0607e8816dd0463418c9248539bd27968ec82a0972a1",
+    "js/flanger.js": "66b334eb2080d78c1608c1de9a36c661f48b19a1ae3e944be758e59175f2657c",
+    "js/gas.js": "da020c31b0854629495166578d8274f538977e7c13c13fd49ea8626620623dd2",
+    "js/livesim.js": "3d6f030c37d07fd5971d24a72c006cfaa360a86f50a7a2a625574be49280cc8f",
+    "js/main.js": "78d9da18606f83911ffa148c9c31459e2ec2e8b75ea2e08d71016704f586bb76",
+    "js/shapes.js": "12439337e57ad6c35a4bc7bdfedee3c081dfe9eede097b033ed23ffc53cc3fcd",
+    "js/speech-mouth.js": "cab649dc7eaec5356b065ced1c98637c8ab1cc3bd09f87cc2807b650bf42d1c6",
+    "js/stage.js": "4d19e58cd893dafdcbd492748ae2e04f100a2a1a103c05ce4091267c91aa77dc",
+    "js/stars.js": "0222f0622e090574f7744b52820a1dddbc56a2f8eb80a6dbcfe99d018023aeb0",
+    "js/tuning.js": "ade156875430927951342cc490abb2bbb46ffcfb179c29417b95d8d5d1eaae40",
+    "js/vendor/addons/postprocessing/AfterimagePass.js": "f35ae79f5e8a2985eefd8e697a89af6b339b5dc38f6d610d1808bbc7329c7724",
+    "js/vendor/addons/postprocessing/EffectComposer.js": "d234e578618fa816955ebdc059c049c577e203e650e33cf22bde3f232c29e669",
+    "js/vendor/addons/postprocessing/MaskPass.js": "328cf7db0da5d9be83ffe39d54b01d5ac1fddf108cc98182ddbb056f5c8b537f",
+    "js/vendor/addons/postprocessing/OutputPass.js": "32f879d2179087676631c799857a885586b3cdd13b9731bd3b13f06428bd58b7",
+    "js/vendor/addons/postprocessing/Pass.js": "b3c6128340eaa37e40a6a2f1b738e894c855239417d50959759b34a2b5e89f92",
+    "js/vendor/addons/postprocessing/RenderPass.js": "6c9b8a539ea16e898f65e4760f14937ef9ea94043bd9842c141e0301f41903e8",
+    "js/vendor/addons/postprocessing/ShaderPass.js": "3b28a1ee27e0eb96c0eab137a1f442ccf127a926904eced2d51e125ec44af781",
+    "js/vendor/addons/postprocessing/UnrealBloomPass.js": "3bd23a1097af75c7002d0ffc21a6c14f45c4dd701dbaf737030dfc61fb7c64d9",
+    "js/vendor/addons/shaders/AfterimageShader.js": "cc97e9abf49de21aed313f69a1faafbc0ba91bbd4739735a60dd9d4e569cc86b",
+    "js/vendor/addons/shaders/CopyShader.js": "4e3346db194db56a596cd074e9bdb39fb5eb52040c333e0d29dc4eb1324d3b1d",
+    "js/vendor/addons/shaders/LuminosityHighPassShader.js": "9f4866f9abb2d96fd83eec46ba4bf2165b22155a7a37ff425c0f60eba18007cb",
+    "js/vendor/addons/shaders/OutputShader.js": "4944cecd49c0d4d1520a4d927bde8a590fd43f041ee913252b9451855a01d0f0",
+    "js/vendor/elevenlabs-client-1.27.0.iife.js": "f69a845935c3788ea46a73b09ead74640dfba5be135f225eac719df3a320c9cd",
+    "js/vendor/three.module.js": "0a3368c165eea773490aec7b77c22de70e3eac288503409256fdbf4d12578416",
+    "js/voice.js": "52e78b6be08f9c3e4b9d193b63ba39a0b0823cada25e693a3c85e069f713c7a5"
+  },
+  "errors": [],
+  "warnings": []
+}

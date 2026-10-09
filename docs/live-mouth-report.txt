@@ -1,0 +1,38 @@
+Live speech mouth integration — 2026-10-09
+
+Checkpoint before integration: 651a4c4.
+Purpose: put the selected mouth vocabulary into real speech for Avi's visual review.
+Choices: UH-b, OU-d (OO sound), RR-d, simple unrounded CH (h .6, square .3).
+Both the editable lab and speech start from fresh copies of the same vocabulary.
+All eight channels now reach the existing speech smoother and renderer. Neutral
+speech input remains w 1 / h 1; the lab's explicit REST preset retains h 0.
+
+The previous individual-letter rounding is replaced by a small English
+word/digraph approximation using existing character alignment. Touch, duck and
+much stay unrounded; moon/food/too use OU; Rome/roam use OH to OH_END.
+This is not phoneme recognition or forced alignment. Unfamiliar words, accents
+and spelling exceptions can still be approximate. Assess natural conversation
+before adding more rules. No acoustic model or service was added.
+
+PASS — 13 focused automated checks, including actual voice streaming,
+interruption, replacement replies, gaps, closure, neutral return, split tags,
+split vowel/digraph arrival and stable event order.
+Command: node --test scripts/mouth-study/speech-mouth.test.mjs scripts/mouth-study/voice-mouth.test.mjs
+
+PASS — One real capture replay in Safari 26.6.2 through the production speech,
+replay and rendering path, with temporary read-only instrumentation. The latest
+local capture's Reply 6 supplied 18.72 seconds of audio. 949 rendered frames;
+946 audible frames; every channel finite; sculpted channels reached the renderer.
+Sampled Duck and Touch windows had round=0/cup=0. The Moon window reached
+round/cup .983. Held lab preview stayed suspended. Natural completion returned
+all channels exactly to neutral and the speech envelope to zero. No browser
+errors or warnings. Numeric evidence: docs/live-mouth-validation.json.
+No new external live conversation was started; the updated local live page is
+ready for Avi to connect and judge. No performance benchmark was run this pass.
+
+Only js/voice.js, mouth defaults in js/stage.js and new js/speech-mouth.js changed
+in production. Other existing JS files hash-identical to the checkpoint.
+Face geometry, eyes, brows, head motion, trails, colour, audio scheduling and
+expression cues were not edited. Baseline QA fingerprinting was adjusted to use
+the baseline's own file list, because it predates the new helper module.
+Private capture text/audio remains local and absent from this report and commit.

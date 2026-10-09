@@ -27,7 +27,12 @@ def baseline(path):
     return subprocess.check_output(['git', '--no-optional-locks', 'show', BASELINE + ':' + path], cwd=ROOT)
 
 def fingerprints(old):
-    return {str(p.relative_to(ROOT)): hashlib.sha256(baseline(str(p.relative_to(ROOT))) if old else p.read_bytes()).hexdigest()
+    if old:
+        paths = subprocess.check_output(
+            ['git', '--no-optional-locks', 'ls-tree', '-r', '--name-only', BASELINE, '--', 'js/'], cwd=ROOT
+        ).decode().splitlines()
+        return {path: hashlib.sha256(baseline(path)).hexdigest() for path in paths if path.endswith('.js')}
+    return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted((ROOT / 'js').rglob('*.js'))}
 
 def instrument(path, source, old=False):
