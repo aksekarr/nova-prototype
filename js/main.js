@@ -122,6 +122,7 @@ if (!faceMaps) restCaption(FACE_UNAVAILABLE);
 
 startStage({
   shapes, reduce, state,
+  nebulaEnhancement: params.get('nebula') !== 'original',
   speechLab: {
     connectMouthLab(lab) {
       mouthLab = lab;

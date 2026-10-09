@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { nebulaLightGLSL } from './nebula-life.js';
 
 // The expensive field is sampled at low resolution; the two depth planes and
 // their form exclusion mask and core fade still render at full frame rate.
@@ -126,7 +127,7 @@ const fieldFragment = `
   }
 `;
 
-export function createGas(scene) {
+export function createGas(scene, lifeUniforms = null) {
   const fieldScene = new THREE.Scene();
   const fieldCamera = new THREE.Camera();
   const fieldUniforms = {
@@ -153,6 +154,7 @@ export function createGas(scene) {
       depthBuffer: false, stencilBuffer: false
     });
     const uniforms = {
+      ...lifeUniforms,
       gasMap: { value: target.texture }, gasStrength: { value: 0 },
       viewport: { value: viewport }, formCenter: { value: formCenter },
       formExtent: { value: formExtent }, formMask: { value: 0 },
@@ -162,6 +164,7 @@ export function createGas(scene) {
     };
     const material = new THREE.ShaderMaterial({
       uniforms, transparent: true, depthWrite: false,
+      defines: lifeUniforms ? { NEBULA_LIFE: 1 } : {},
       blending: THREE.AdditiveBlending, toneMapped: false,
       vertexShader: `
         varying vec2 gasUV;
@@ -171,6 +174,9 @@ export function createGas(scene) {
         }
       `,
       fragmentShader: `
+        #ifdef NEBULA_LIFE
+        ${nebulaLightGLSL}
+        #endif
         uniform sampler2D gasMap;
         uniform float gasStrength;
         uniform float formMask;
@@ -215,6 +221,20 @@ export function createGas(scene) {
             float edge = 1.0 - smoothstep(0.70, 1.0, max(abs(gasUV.x * 2.0 - 1.0), abs(gasUV.y * 2.0 - 1.0)));
             float nucleus = exp(-dot(disk, disk) * 180.0) * 0.55 * edge;
             vec3 core = vec3(0.94, 0.74, 0.49) * field.a + vec3(1.0, 0.94, 0.82) * nucleus;
+            #ifdef NEBULA_LIFE
+            if (lifeAmount > 0.0) {
+              // Light the existing cached clouds at display rate, preserving every dust gap.
+              float flash = 0.0;
+              for (int i = 0; i < 2; i++) {
+                if (lifeGlowScreen[i].w > 0.0) {
+                  vec2 d = (screenUV - lifeGlowScreen[i].xy) * vec2(viewport.x / viewport.y, 1.0);
+                  flash += exp(-dot(d, d) * 150.0) * lifeGlowScreen[i].w;
+                }
+              }
+              color = lifeColour(color, disk * 10.0, flash);
+              core *= 1.0 + lifeAmount * lifePulse() * 0.08;
+            }
+            #endif
             color += core * coreStrength;
           }
           color = min(color, vec3(1.0));

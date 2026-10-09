@@ -5,6 +5,7 @@ import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createGas } from './gas.js';
+import { createNebulaLife, nebulaLightGLSL } from './nebula-life.js';
 import { createStars } from './stars.js';
 import { makeMouthPresets } from './speech-mouth.js';
 import { sampleScalar } from './facesample.js';
@@ -168,7 +169,7 @@ const TUNING = {
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null, idleForm = orbital }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null, idleForm = orbital, nebulaEnhancement = false }) {
   const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const hasFace = Boolean(shapes.MAPS);
   const canvas = document.getElementById('stage');
@@ -184,7 +185,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   updateFace(0, state.clock);
   const headDisplay = shapes.headDisplay;
   const faceSamples = hasFace ? new Float32Array(shapes.BASE) : null;
-  const gas = createGas(scene);
+  const nebulaLife = nebulaEnhancement ? createNebulaLife(scene, NEB, PH, reduce) : null;
+  const gas = createGas(scene, nebulaLife?.uniforms);
   const stars = createStars(scene);
 
   const POS = new Float32Array(N * 3);
@@ -230,7 +232,9 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   geom.setAttribute('glint', new THREE.BufferAttribute(GLINT, 1));
   geom.setAttribute('faceStarSize', new THREE.BufferAttribute(shapes.STAR_SIZE || SIZE, 1));
   geom.setAttribute('faceProtection', new THREE.BufferAttribute(shapes.PROTECT || new Float32Array(N), 1));
+  if (nebulaLife) geom.setAttribute('nebulaHome', new THREE.BufferAttribute(NEB, 3));
   const uniforms = {
+    ...nebulaLife?.uniforms,
     pointSize: { value: 0 },
     viewportHeight: { value: 1 },
     sizeVariation: { value: TUNING.sizeVariation },
@@ -244,8 +248,13 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   };
   const mat = new THREE.ShaderMaterial({
     uniforms, vertexColors: true,
+    defines: nebulaLife ? { NEBULA_LIFE: 1 } : {},
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `
+      #ifdef NEBULA_LIFE
+      attribute vec3 nebulaHome;
+      ${nebulaLightGLSL}
+      #endif
       attribute float size;
       attribute float glint;
       attribute float faceStarSize;
@@ -280,6 +289,19 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
         float particleSize = mix(mix(1.0, size, sizeVariation), starSize, faceDisplayMix);
         gl_PointSize = pointSize * particleSize * viewportHeight * 0.5 / distance * spriteScale;
         particleColor = color;
+        #ifdef NEBULA_LIFE
+        if (lifeAmount > 0.0) {
+          vec2 disk = vec2(nebulaHome.x, (nebulaHome.z * 0.852525 - nebulaHome.y * 0.522687) / 0.7);
+          float flash = 0.0;
+          for (int i = 0; i < 2; i++) {
+            if (lifeGlow[i].w > 0.0) {
+              vec3 d = position - lifeGlow[i].xyz;
+              flash += exp(-dot(d, d) * 0.65) * lifeGlow[i].w;
+            }
+          }
+          particleColor = lifeColour(color, disk, flash);
+        }
+        #endif
         float depth = max(0.0, distance - (focusDistance - 4.0));
         particleFade = mix(1.0, exp(-depth * 0.12), depthFade);
       }
@@ -747,6 +769,11 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     uniforms.focusDistance.value = camera.position.z;
     camera.lookAt(0, 0, 0);
 
+    // Effect buffers follow the displayed particles, without entering their simulation.
+    if (nebulaLife) {
+      camera.updateMatrixWorld();
+      nebulaLife.update(dt, clock, DISPLAY_POS, nebulaMix, mode === 'nebula', camera, points.rotation);
+    }
     const formMix = 1 - nebulaMix;
     if (formMix > 0.0001) projectClearance();
     stars.update(clock, reduce);
@@ -758,4 +785,5 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+  return { setNebulaEnhanced(value) { nebulaLife?.setEnabled(value); } };
 }

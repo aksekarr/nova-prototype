@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seni · Living nebula</title>
+<link rel="stylesheet" href="./css/nova.css">
+<link rel="stylesheet" href="./css/orbit.css">
+<style>
+.orbit-controls { gap: 8px; flex-wrap: wrap; padding: 0 18px; }
+.orbit-controls button { min-width: 104px; }
+.orbit-controls button[aria-pressed="true"] { border-color: rgba(167,214,255,.65); color: #eef5ff; background: rgba(89,136,184,.14); }
+#form-status { margin: 4px 0 0; color: var(--dim); font-size: .68rem; letter-spacing: .06em; }
+</style>
+<script type="importmap">{"imports":{"three":"./js/vendor/three.module.js","three/addons/":"./js/vendor/addons/"}}</script>
+<script type="module" src="./js/nebula-preview.js"></script>
+</head>
+<body class="orbital-study">
+<canvas id="stage" aria-label="Seni’s nebula with travelling colour and delicate internal lightning"></canvas>
+<header class="orbit-hud">
+  <p class="mark">SENI<small>Living nebula</small></p>
+  <p id="form-status" role="status">Gathering light…</p>
+</header>
+<footer class="orbit-controls" aria-label="Compare Seni’s nebula">
+  <button data-view="original" type="button" aria-pressed="false" disabled>Original</button>
+  <button data-view="enhanced" type="button" aria-pressed="true" disabled>Enhanced</button>
+  <button data-view="face" type="button" aria-pressed="false" disabled>Face</button>
+</footer>
+</body>
+</html>
