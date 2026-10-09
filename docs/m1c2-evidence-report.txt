@@ -1,0 +1,67 @@
+Seni M1 calibration round 2 — evidence report
+Date: 2026-10-09
+
+Purpose: compare what existing controls can deliver for a visually compelling character. This is a still-shape study, not an approval of audible speech feel. No candidate has been applied to production.
+
+(a) PASS — production source and Git state
+HEAD: 98bc3eefc8939b23cfb7e0d6140ec3c870fe2d43
+Preserved starting status:
+ M js/stage.js
+ M js/tuning.js
+All 34 files under js/, all 81 tracked file fingerprints, HEAD, status and the existing diff fingerprint match. Before/after hashes and comparison are saved separately. New m1c2 evidence paths are ignored QA artifacts; they do not alter the pre-existing files.
+
+(b) PASS — capture and presentation
+16 candidate renders plus REST and PP. All candidate channels settled with maximum channel error zero. Safari viewport 1512×833 CSS pixels, DPR 2; rendered canvas 3024×1666. Seed 120246161 (0x72acf91), neutral expression, frozen time 20, fixed camera and pose, Opening 0.6. Captures match m1c framing.
+Whole-face exports 382×469 at 1× CSS scale, mouth crops 454×328 at 3×. Fixed mouth crop is centred on the projected mapped mouth landmark; its maximum pixel-rounding offset is 0.291 rendered pixels. This is not a candidate-specific dark-aperture centroid. Reference mappings: UH uh-open; OU oo-pucker; CH ch-setup and touch-3; RR r-191p54s.
+m1c2-viewer.html supports shape selection, candidate keys 1–4, full reference context and an all-four comparison. Safari candidate/shape switching, image updates and reference modal were manually verified. Static contact sheet and four row sheets were visually inspected. Browser zoom must remain 100% for the viewer’s native-size presentation.
+
+(c) PASS — descriptive measurements
+Rendered measurements, not targets. Established M1 method: opening and mouth extents from projected displayed particle support, cavity > .45 and lipFocus > .1; no input-parameter dimensions. Lip-band thickness is mean upper/lower 5–95% vertical span within central 24% of rendered mouth width, lipFocus > .25. Final PNG mean luminance over union of radius .75 CSS px discs on lipFocus > .25 particles. No image threshold is anatomical ground truth. Measurement masks show cavity (mint) and central lip support (amber). Mouth-width percentage uses REST rendered under identical conditions; opening-width percentage uses each candidate’s mouth support. Crop centring uses the projected mapped mouth landmark, independently of the support-derived measurement centre.
+Use m1c2-measurements.txt/json as the authoritative established-M1 measurements in CSS pixels. The capture summary also contains provisional integer raster bounds and linear-colour diagnostics; those are not the final M1 lip-band/brightness method. No target score or anatomical pass threshold is applied.
+
+(d) PASS — closure
+All 16 candidates × Opening 0.6 and 1 = 32 actual lab-controller transitions to PP reached close=1 and exact aperture=0 after 9 fixed 1/60-second steps. Each start state was settled exactly. This establishes the tested controller closure, not every possible transition path.
+
+(e) PASS — sampling
+Existing m1c forward finite differences (epsilon 1e-6) of production sampled image coordinates; 121×101 home-UV locations, each sampled with two perturbations. Largest singular value of Jacobian; neutral, blink 1. Finite sampling does not prove global invertibility.
+32/32 cases passed. Minimum Jacobian determinant 0.046942338567; maximum local stretch 9.313107215318; cheek-background samples 0.
+
+(f) PASS — performance measurement completed; 60fps target FAIL in these runs
+Actual 98bc3ee modules/defaults versus current working-tree modules/defaults, using identical temporary instrumentation outside the repo. Both use the same viewport and harness. Rome is a configuration comparison because its preset schedule differs between versions; this does not isolate the cost of an individual control.
+Actual version modules and defaults; no shadow, screenshots, readbacks, support geometry or integrity work during timing. 120 frame warm-up before each run; Rome further warms 1.5s and runs 12s, Opening 1, speed 1. Audio state must be running before replay; each replay bounded to60s; safe diagnostics only at timed endpoints. Each run saved after timing. Replay source remains memory-only. Rome is a configuration comparison because presets and sequence differ. FPS is measured outcome, not a60fps pass.
+Current was measured before baseline. Each series contains three Rome runs and three actual evening reply 3 (index 2) replays. The private payload was consumed in memory only; saved evidence contains numeric diagnostics and capture identity, not private text/audio. All 12 final runs remained visible, had no interventions, no console errors or warnings; all replays completed without interruption or timeout. The first manually interrupted attempt is retained under *interrupted-attempt.json and excluded from every final aggregate.
+User agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.2 Safari/605.1.15
+
+Per-run data (wall duration is separate from accumulated frame intervals used for FPS):
+version | case | run | fps | frames >20ms | slowest ms | mean mouth-warp ms/frame | wall elapsed ms | valid
+baseline | Rome | 1 | 45.697 | 360 | 33.000 | 2.118613 | 12001.000 | True
+baseline | Rome | 2 | 59.005 | 65 | 30.000 | 2.048023 | 12001.000 | True
+baseline | Rome | 3 | 46.893 | 332 | 31.000 | 2.074600 | 12002.000 | True
+baseline | replay | 1 | 45.576 | 787 | 35.000 | 4.154907 | 27064.000 | True
+baseline | replay | 2 | 52.330 | 436 | 34.000 | 4.132768 | 27063.000 | True
+baseline | replay | 3 | 56.627 | 223 | 33.000 | 4.092629 | 27071.000 | True
+current | Rome | 1 | 48.595 | 311 | 31.000 | 2.092624 | 12000.000 | True
+current | Rome | 2 | 47.389 | 340 | 32.000 | 2.105448 | 12001.000 | True
+current | Rome | 3 | 49.541 | 279 | 33.000 | 2.077441 | 12001.000 | True
+current | replay | 1 | 47.492 | 710 | 35.000 | 4.156420 | 27065.000 | True
+current | replay | 2 | 47.353 | 708 | 35.000 | 4.172521 | 27062.000 | True
+current | replay | 3 | 48.995 | 660 | 34.000 | 4.124434 | 27064.000 | True
+
+Three-run summaries:
+version | case | median fps | median frames >20ms | median slowest ms | worst frame ms | median mean mouth-warp ms/frame | median wall ms
+baseline | Rome | 46.893 | 332 | 31.000 | 33.000 | 2.074600 | 12001.000
+baseline | replay | 52.330 | 436 | 34.000 | 35.000 | 4.132768 | 27064.000
+current | Rome | 48.595 | 311 | 32.000 | 33.000 | 2.092624 | 12001.000
+current | replay | 47.492 | 708 | 35.000 | 35.000 | 4.156420 | 27064.000
+
+Interpretation: current replay median is lower than baseline; current Rome median is higher. Baseline run variation is substantial. Mean mouth-warp cost is nearly unchanged. These results establish neither reliable 60fps nor a causal explanation for the frame-rate difference, and do not clear a regression. No CPU/GPU cause has been diagnosed. Performance profiling is outside this render-only experiment.
+
+(g) PASS — observed differences and tradeoffs; no artistic winner
+UH: a→b raises opening height 24.60→31.91 CSS px at unchanged 128.60px mouth width; c/d make taller, somewhat narrower openings. No general capability limit is established.
+OU: a→c raises opening height 7.00→20.59px with mouth width 49.88→50.16px; measured lip band decreases 30.22→28.94px. This demonstrates a larger opening, not a fuller or more projecting rim. It does not exhaust the available controls.
+CH: b→c changes only Cup 0.2→0.5, narrowing mouth support 84.74→69.67px while raising opening height 11.67→15.13px. Candidate d narrows it further to 57.21px through its combined settings. This is a demonstrated coupling in these candidates, not proof of global impossibility.
+RR: Avi’s b broadens mouth support 66.74→75.35px and opening width 52.26→64.65px while opening height stays near 10.3px; c/d add opening height. Slider direction alone is not grounds to reject Avi’s edit.
+
+Decision boundary: the technical checks preserve candidate choice; they do not pick a beautiful or convincing performance. Judge the whole face first. Any selected shapes still need to be experienced in continuous, audible motion before speech feel can be approved. Rachel’s inspected pack remains the immediate reference; Adobe/SpeechSTAR were not required for this experiment.
+
+Independent evidence audit found no blocker to checks b–f. Root verified source protection, observed all four row sheets and checked the viewer. No commit, production-preset edit or persistent agent/model configuration change was made.

@@ -1,0 +1,13 @@
+(a) PASS: Git state, 34 JavaScript files and 81 tracked files unchanged.
+(b) PASS: 16 settled candidates; native-size faces, centred 3× crops, references and labels.
+(c) PASS: measurements and REST/opening percentages saved.
+(d) PASS: 32/32 PP transitions reach zero aperture.
+(e) PASS: 32/32 finite-grid cases; minimum determinant 0.04694, maximum stretch 9.313, zero cheek-background samples.
+(f) PASS: 12 valid Safari runs. Baseline→current: Rome 46.9→48.6fps; replay 52.3→47.5fps. Median >20ms counts: 332→311; 436→708. Worst frames: 33→33ms; 35→35ms. Warp: 2.075→2.093; 4.133→4.156ms/frame. 60fps target: FAIL in these runs; cause unresolved.
+UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.2 Safari/605.1.15
+(g) PASS, observations:
+UH: taller openings; no capability limit established.
+OU: larger opening without demonstrated fuller rim.
+CH: more Cup accompanies narrowing.
+RR: Avi’s edit widens the mouth; c/d add height.
+No winner selected; speech feel remains unapproved.

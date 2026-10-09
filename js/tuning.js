@@ -86,7 +86,9 @@ const MOUTH_CONTROLS = [
 ];
 const MOUTH_SEQUENCES = {
   touch: [['REST', 0.09], ['DD', 0.08], ['UH', 0.16], ['CH', 0.12], ['REST', 0.16]],
-  Rome: [['REST', 0.09], ['RR', 0.12], ['OH', 0.18], ['PP', 0.08], ['REST', 0.16]],
+  Rome: [['REST', 0.09], ['RR', 0.12], ['OH', 0.10], ['OH_END', 0.10], ['PP', 0.08], ['REST', 0.16]],
+  room: [['REST', 0.09], ['RR', 0.12], ['OU', 0.18], ['PP', 0.08], ['REST', 0.16]],
+  duck: [['REST', 0.09], ['DD', 0.08], ['UH', 0.16], ['DD', 0.10], ['REST', 0.16]],
 };
 
 // Preview state never enters TUNING or voice. Only the sculpted vocabulary is

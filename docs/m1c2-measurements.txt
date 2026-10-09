@@ -1,0 +1,29 @@
+M1C2 rendered measurements — not targets
+Rendered measurements, not targets. Established M1 method: opening and mouth extents from projected displayed particle support, cavity > .45 and lipFocus > .1; no input-parameter dimensions. Lip-band thickness is mean upper/lower 5–95% vertical span within central 24% of rendered mouth width, lipFocus > .25. Final PNG mean luminance over union of radius .75 CSS px discs on lipFocus > .25 particles. No image threshold is anatomical ground truth. Measurement masks show cavity (mint) and central lip support (amber). Mouth-width percentage uses REST rendered under identical conditions; opening-width percentage uses each candidate’s mouth support. Crop centring uses the projected mapped mouth landmark, independently of the support-derived measurement centre.
+
+Lengths: CSS px at Opening .6; brightness: [0,1]; ratios: %.
+REST mouth-width denominator: 135.529923 CSS px.
+shape	opening_w	opening_h	w/h	lip_band	mouth_w	lip_brightness	mouth_w_%REST	opening_w_%mouth
+REST	0.0000	0.0000	n/a	28.1590	135.5299	0.1742	100.0000	0.0000
+UH-a	111.4731	24.6019	4.5311	26.3011	128.6041	0.1762	94.8898	86.6793
+UH-b	112.3742	31.9085	3.5218	24.7360	128.6041	0.1782	94.8898	87.3800
+UH-c	107.3600	35.5472	3.0202	24.9762	123.3812	0.1811	91.0361	87.0149
+UH-d	108.4613	34.8581	3.1115	24.5796	121.7515	0.1808	89.8337	89.0841
+OU-a	30.8289	7.0022	4.4027	30.2239	49.8849	0.1763	36.8073	61.8000
+OU-b	35.3241	13.6880	2.5807	29.2122	49.8849	0.1769	36.8073	70.8112
+OU-c	37.2896	20.5896	1.8111	28.9380	50.1642	0.1809	37.0133	74.3352
+OU-d	30.8289	13.6880	2.2523	29.0483	46.8399	0.1765	34.5605	65.8176
+CH-a	63.9476	6.1763	10.3537	29.1599	84.7387	0.1729	62.5240	75.4644
+CH-b	72.2979	11.6659	6.1974	27.9858	84.7387	0.1723	62.5240	85.3186
+CH-c	60.6218	15.1312	4.0064	29.4146	69.6682	0.1705	51.4043	87.0150
+CH-d	49.6055	8.5536	5.7994	28.1091	57.2148	0.1715	42.2156	86.7005
+RR-a	52.2569	10.4571	4.9973	28.7682	66.7446	0.1726	49.2471	78.2938
+RR-b	64.6463	10.2263	6.3216	28.9988	75.3470	0.1684	55.5944	85.7982
+RR-c	52.7316	15.0334	3.5076	29.2077	67.4906	0.1743	49.7976	78.1317
+RR-d	68.3549	15.2581	4.4799	29.2765	75.3470	0.1701	55.5944	90.7202
+PP	0.0000	0.0000	n/a	23.3571	129.0086	0.1727	95.1883	0.0000
+
+Capture consistency: {"browser": true, "viewport": true, "renderSize": true, "opening": true, "faceROI": true, "camera": true, "headPose": true, "initialSeed": true, "neutralExpression": true, "clock": true, "sourceHashes": true}
+All crops centred on each projected mouth landmark within 0.51 render pixel.
+Face exports are at native CSS size; close-ups are 3×. Dimensions round only at the final image-pixel boundary.
+Measurements are descriptive. No thresholds or pass/fail against anatomical target dimensions.
