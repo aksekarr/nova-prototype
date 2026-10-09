@@ -579,7 +579,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       DISPLAY_POS.set(targetPositions); COL.set(targetColours);
     }
     const progress = formStarted ? formMorph.progress : 1;
-    const ease = progress * progress * progress * (10 + progress * (-15 + progress * 6));
+    const ease = formStarted ? formMorph.blend : 1;
     uniforms.faceDisplayMix.value = formStarted
       ? formAppearance + ((mode === 'face' ? 1 : 0) - formAppearance) * ease : 1;
     geom.attributes.position.needsUpdate = true;
@@ -615,7 +615,10 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     gas.update(dt, clock * (reduce ? 0.4 : 1), clock * 0.025, formGas, 1, 0, clearCenter, clearExtent,
       formWrap * Math.min(1, TUNING.gasWrap), featureClearance);
     gas.render(renderer);
-    const trail = reduce || !formMorph.active ? 0 : 0.48 * Math.sin(Math.PI * progress) ** 2;
+    // Catch the initial rush, then let the new form resolve cleanly. Matching
+    // the old nebula's early trails avoids a second flourish after arrival.
+    const trail = reduce || !formMorph.active ? 0
+      : 0.65 * THREE.MathUtils.smoothstep(progress, 0, 0.035) * Math.pow(1 - ease, 0.35);
     trails.uniforms.damp.value = trail > 0 && trails.enabled && !changed ? Math.pow(trail, elapsed * 60) : 0;
     trails.enabled = trail > 0;
     composer.render();

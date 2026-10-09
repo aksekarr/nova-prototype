@@ -81,10 +81,10 @@ test('source is exact at release, target is exact at completion, and the settled
   assert.deepEqual(morph.colours, face.colours);
   assert.equal(morph.progress, 0);
   assert.equal(morph.active, true);
-  morph.sample(10.15, orbital.positions, orbital.colours);
-  assert.deepEqual(morph.positions, face.positions, 'the face has a short readable hold');
-  orbital.update(13.2);
-  morph.sample(13.2 + 1e-8, orbital.positions, orbital.colours);
+  morph.sample(10 + 1 / 60, orbital.positions, orbital.colours);
+  assert.notDeepEqual(morph.positions, face.positions, 'movement starts on the first frame');
+  orbital.update(12);
+  morph.sample(12, orbital.positions, orbital.colours);
   checkMapped(morph, orbital);
   assert.equal(morph.progress, 1);
   assert.equal(morph.active, false);
@@ -133,7 +133,7 @@ test('restrained paths keep about four fifths close to direct travel and cap the
   const sourceColour = new Float32Array(COUNT * 3).fill(.2);
   const targetColour = new Float32Array(COUNT * 3).fill(.8);
   morph.begin(face.positions, sourceColour, 0);
-  morph.sample(1.7, orbital.positions, targetColour);
+  morph.sample(.3, orbital.positions, targetColour);
   let flaring = 0;
   for (let i = 0; i < COUNT; i++) {
     const j = i * 3, k = morph.mapping[i] * 3;
@@ -222,4 +222,29 @@ test('reverse returns each particle to its original face identity and recaptures
   assert.deepEqual(morph.positions, movedFace);
   morph.sample(8.3, orbital.positions, orbital.colours);
   checkMapped(morph, orbital);
+});
+
+
+test('gathering moves immediately, varies particle arrivals and resolves most travel before the settling tail', () => {
+  const orbital = createOrbital(COUNT), morph = createFormMorph(face.positions, orbital.positions);
+  const dark = new Float32Array(COUNT * 3), light = new Float32Array(COUNT * 3).fill(1);
+  morph.begin(face.positions, dark, 0);
+  const weightsAt = time => {
+    morph.sample(time, orbital.positions, light);
+    return Array.from({ length: COUNT }, (_, i) => morph.colours[i * 3]).sort((a, b) => a - b);
+  };
+  const first = weightsAt(1 / 60);
+  assert.ok(first[0] > .01, 'every particle begins without a release hold');
+  const rush = weightsAt(.5);
+  assert.ok(rush[COUNT / 2] > .6, 'most travel happens early');
+  assert.ok(rush[COUNT * .9] - rush[COUNT * .1] > .1, 'grains arrive at visibly different speeds');
+  const oneSecond = weightsAt(1);
+  assert.ok(oneSecond[COUNT / 2] > .9, 'typical particle has mostly arrived in one second');
+  assert.ok(morph.blend > .9, 'framing and appearance do not lag behind the particles');
+  const readable = weightsAt(1.4);
+  assert.ok(readable[0] > .95 && readable[COUNT / 2] > .98, 'form resolves before the last settling grains');
+  assert.equal(morph.active, true, 'soft tail remains after the main gathering');
+  weightsAt(2);
+  assert.equal(morph.active, false);
+  assert.equal(morph.blend, 1);
 });

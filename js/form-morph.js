@@ -53,7 +53,7 @@ function checkPool(values, length) {
   if (!values || values.length !== length) throw new RangeError('Particle buffers must have matching lengths.');
 }
 
-export function createFormMorph(sourceTemplate, targetTemplate, { duration = 3.2, reduce = false } = {}) {
+export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, reduce = false } = {}) {
   if (!sourceTemplate || sourceTemplate.length % 3) throw new RangeError('Particle templates must contain xyz triples.');
   checkPool(targetTemplate, sourceTemplate.length);
   if (!Number.isFinite(duration) || duration <= 0) throw new RangeError('Transition duration must be positive and finite.');
@@ -66,12 +66,11 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 3.2
 
   const positions = new Float32Array(sourceTemplate), colours = new Float32Array(length);
   const startPositions = new Float32Array(length), startColours = new Float32Array(length);
-  const arcs = new Float32Array(length), delay = new Float32Array(count);
+  const arcs = new Float32Array(length), speedPower = new Float32Array(count);
   const R = rngFrom(0x666C6F77);
   const durationSeconds = reduce ? Math.min(duration, .42) : duration;
   const cx = (sourceBox.low[0] + sourceBox.high[0]) * .5;
   const cy = (sourceBox.low[1] + sourceBox.high[1]) * .5;
-  const height = Math.max(sourceBox.high[1] - sourceBox.low[1], 1e-6);
   for (let i = 0; i < count; i++) {
     const j = i * 3, x = sourceTemplate[j] - cx, y = sourceTemplate[j + 1] - cy;
     const radius = Math.hypot(x, y), norm = Math.max(radius, sourceBox.span * .08);
@@ -87,11 +86,13 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 3.2
     arcs[j] = ax / arcLength * amount;
     arcs[j + 1] = ay / arcLength * amount;
     arcs[j + 2] = az / arcLength * amount;
-    const down = 1 - (sourceTemplate[j + 1] - sourceBox.low[1]) / height;
-    const radial = Math.min(1, radius / (sourceBox.span * .5));
-    // Give the face a short readable hold, then release neighbouring patches
-    // together. All particles still arrive at the same overall end time.
-    delay[i] = reduce ? 0 : Math.min(duration * .12, .16 + .14 * (.65 * down + .35 * radial));
+    // Move on the first frame, like the original nebula gathering. Different
+    // response speeds loosen facial patches instead of stretching them as a
+    // sheet, while the destination identity remains fixed. A shared spatial
+    // field keeps some local rhythm; index variation lets grains arrive apart.
+    const variation = (Math.imul(i + 1, 0x9e3779b1) >>> 0) / 4294967296;
+    const field = .5 + .5 * Math.sin(x * 1.2 + y * .8);
+    speedPower[i] = 2.6 + 2.8 * (.65 * variation + .35 * field);
   }
 
   let started = false, startTime = 0, progress = 0, reverseTarget = false;
@@ -124,10 +125,11 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 3.2
         colours[j + 2] = targetColours[destination + 2];
         continue;
       }
-      const u = Math.max(0, Math.min(1, (elapsed - delay[i]) / (durationSeconds - delay[i])));
-      const ease = u * u * u * (10 + u * (-15 + u * 6));
-      // Both the travel and the excursion have zero endpoint velocity. There
-      // is no detached cloud, brightness dip, or white flash between the forms.
+      const u = progress;
+      const ease = reduce ? u * u * u * (10 + u * (-15 + u * 6))
+        : 1 - Math.pow(1 - u, speedPower[i]);
+      // Immediate travel, followed by a soft landing. The bounded excursion
+      // vanishes at both endpoints; no detached cloud or blank replacement.
       const excursion = reduce ? 0 : 16 * ease * ease * (1 - ease) * (1 - ease);
       for (let c = 0; c < 3; c++) {
         positions[j + c] = startPositions[j + c]
@@ -142,7 +144,10 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 3.2
 
   const api = { positions, colours, mapping, begin, sample,
     get active() { return started && progress < 1; },
-    get progress() { return progress; }
+    get progress() { return progress; },
+    // Appearance and framing follow the same front-loaded gathering rhythm.
+    get blend() { return reduce ? progress ** 3 * (10 + progress * (-15 + progress * 6))
+      : 1 - (1 - progress) ** 4; }
   };
   return api;
 }
