@@ -556,7 +556,7 @@ export function createFace(shapes, reduce) {
     refreshSelection();
   }
 
-  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false, mouthPreview = null, renderParticles = true) {
+  function update(dt, clock, cues, envelope, shape, speaking = false, ended = null, listening = false, mouthPreview = null) {
     const newReply = cues?.replyId !== undefined && cues.replyId !== activeReply;
     if (newReply) {
       preview = false;
@@ -696,11 +696,8 @@ export function createFace(shapes, reduce) {
     diagnostics.pose = pose;
     diagnostics.selectedPose = selectedPose;
     diagnostics.poseIntensity = poseIntensity;
-    // Hidden forms pause only particle rebuilding; performance clocks stay live.
-    if (renderParticles) {
-      mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
-      motion.update(clock);
-    }
+    mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
+    motion.update(clock);
     follow.setSquashStretch(cur.squashStretch);
     follow.updateGesture(step, cues, automaticEnabled, automatic.state.gestureWindows,
       beats, automatic.state.blockingEvent);

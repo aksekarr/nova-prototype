@@ -27,7 +27,7 @@ export function createOrbital(N, reduce = false) {
   const light = new Float32Array(N), phase = new Float32Array(N * 2);
   const kind = new Uint8Array(N), band = new Uint8Array(N), output = new Uint32Array(N);
   const matrix = new Float64Array(27), spin = new Float64Array(12), wave = new Float64Array(6);
-  const ringEnd = Math.floor(N * .62), cometEnd = Math.floor(N * .68), coreEnd = Math.floor(N * .76);
+  const ringEnd = Math.floor(N * .65), cometEnd = Math.floor(N * .72), coreEnd = Math.floor(N * .94);
   for (let i = 0; i < N; i++) output[i] = i;
   for (let i = N - 1; i > 0; i--) {
     const q = Math.floor(R() * (i + 1)), tmp = output[i];
@@ -47,39 +47,63 @@ export function createOrbital(N, reduce = false) {
       // Negative-speed bands reverse the wake so it always trails its head.
       const lag = comet ? Math.pow(R(), 1.85) * 1.08 : 0;
       const angle = comet ? -Math.sign(BANDS[b].speed) * lag : R() * TAU;
-      const width = comet ? .017 + lag * .054 : .025 + R() * .035;
-      const radial = 1 + scatter() * width;
+      // Five close filaments give each plane a rich, fine-grained ribbon.
+      const lane = (i % 5 - 2) * .012;
+      const width = comet ? .014 + lag * .047 : .010 + R() * .012;
+      const radial = 1 + (comet ? 0 : lane) + scatter() * width;
       local[j] = Math.cos(angle) * radial;
       local[j + 1] = Math.sin(angle) * radial;
-      local[j + 2] = scatter() * (comet ? .035 + lag * .07 : .065);
+      local[j + 2] = scatter() * (comet ? .029 + lag * .065 : .045) + lane * .8;
       const head = comet ? Math.exp(-lag * 6.5) : 0;
-      const warm = comet && lag < .095 && R() < .33;
-      light[i] = comet ? (.035 + head * .37) * (.7 + R() * .5) : .084 + R() * .189;
-      if (warm) {
-        tint[j] = 1; tint[j + 1] = .55 + R() * .15; tint[j + 2] = .20;
-      } else {
-        const ice = comet ? head * .60 : R() * .18;
-        tint[j] = palette[0] + (.86 - palette[0]) * ice;
-        tint[j + 1] = palette[1] + (.94 - palette[1]) * ice;
-        tint[j + 2] = palette[2] + (1 - palette[2]) * ice;
-      }
+      light[i] = comet ? (.08 + head * .68) * (.8 + R() * .3) : .16 + R() * .34;
+      const ice = comet ? .22 + head * .76 : .12 + R() * .18;
+      tint[j] = palette[0] + (.91 - palette[0]) * ice;
+      tint[j + 1] = palette[1] + (.97 - palette[1]) * ice;
+      tint[j + 2] = palette[2] + (1 - palette[2]) * ice;
     } else if (i < coreEnd) {
       kind[i] = 2;
-      // Offset wisps leave dark pockets in the nucleus rather than filling an
-      // opaque sphere. Rare hot grains punctuate its cool, irregular volume.
-      const lobe = i % 4;
-      let x = scatter() * .34 + (lobe === 0 ? -.17 : lobe === 1 ? .16 : .01);
-      let y = scatter() * .28 + (lobe === 2 ? -.15 : .09);
-      let z = scatter() * .28 + (lobe === 3 ? -.13 : .04);
-      const radius = Math.hypot(x, y, z), limit = .64;
-      if (radius > limit) { const scale = limit / radius; x *= scale; y *= scale; z *= scale; }
-      local[j] = x; local[j + 1] = y; local[j + 2] = z;
-      const hot = R() < .027;
-      light[i] = hot ? .55 + R() * .23 : .065 + R() * .16;
-      const violet = lobe === 3;
-      tint[j] = hot ? .78 : violet ? .51 : .24;
-      tint[j + 1] = hot ? .89 : violet ? .37 : .68;
-      tint[j + 2] = .95;
+      const region = R();
+      if (region < .34) {
+        // A tightly packed white-blue heart anchors the much larger corona.
+        // Its irregular lobes stay small enough to read as a star, not a ball.
+        const lobe = i % 3;
+        let x = scatter() * .19 + (lobe === 0 ? -.052 : .035);
+        let y = scatter() * .18 + (lobe === 1 ? .038 : -.014);
+        let z = scatter() * .17;
+        const radius = Math.hypot(x, y, z), limit = .34;
+        if (radius > limit) { const scale = limit / radius; x *= scale; y *= scale; z *= scale; }
+        local[j] = x; local[j + 1] = y; local[j + 2] = z;
+        light[i] = R() < .09 ? .68 + R() * .23 : .22 + R() * .30;
+        tint[j] = .76 + R() * .15; tint[j + 1] = .9 + R() * .08; tint[j + 2] = 1;
+      } else if (region < .86) {
+        // A mottled cyan/violet shell surrounds a visible white nucleus.
+        // Bright curled wisps and darker gaps retain detail in additive light.
+        const angle = R() * TAU, height = R() * 2 - 1;
+        const radius = .28 + .56 * Math.pow(R(), .8), plane = Math.sqrt(1 - height * height);
+        const curl = angle + height * 2.4;
+        local[j] = radius * plane * Math.cos(curl);
+        local[j + 1] = radius * height * .93;
+        local[j + 2] = radius * plane * Math.sin(curl) * .9;
+        const filament = .4 + .6 * Math.pow(.5 + .5 * Math.sin(angle * 5 + height * 7), 2);
+        light[i] = (.08 + R() * .22) * filament * (1.35 - radius * .7);
+        const violet = .5 + .5 * Math.sin(angle * 2 + height * 3);
+        tint[j] = .20 + violet * .40;
+        tint[j + 1] = .89 - violet * .43;
+        tint[j + 2] = 1;
+      } else {
+        // Short, narrow radial filaments taper to luminous needle tips.
+        // Slightly different depths keep the star dimensional while it turns.
+        const ray = i % 12, angle = ray * TAU / 12 + .13;
+        const progress = Math.pow(R(), .7), radius = .25 + progress * .83;
+        const width = .004 + (1 - progress) * .021;
+        local[j] = Math.cos(angle) * radius + scatter() * width;
+        local[j + 1] = Math.sin(angle) * radius + scatter() * width;
+        local[j + 2] = Math.sin(ray * 2.4) * radius * .32 + scatter() * width;
+        light[i] = .022 + (.16 + R() * .48) * Math.pow(1 - progress, 1.2);
+        tint[j] = .43 + (1 - progress) * .32;
+        tint[j + 1] = .80 + (1 - progress) * .15;
+        tint[j + 2] = 1;
+      }
     } else {
       kind[i] = 3;
       const angle = R() * TAU, height = R() * 2 - 1;

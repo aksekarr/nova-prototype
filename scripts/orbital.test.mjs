@@ -10,22 +10,27 @@ function checkTargets(form, count) {
   assert.ok(form.colours instanceof Float32Array);
   assert.equal(form.positions.length, count * 3);
   assert.equal(form.colours.length, count * 3);
-  let outer = 0, nucleus = 0;
+  let outer = 0, nucleus = 0, star = 0, luminous = 0;
   for (let j = 0; j < form.positions.length; j += 3) {
     const radius = Math.hypot(form.positions[j], form.positions[j + 1], form.positions[j + 2]);
     assert.ok(Number.isFinite(radius) && radius <= form.bounds.radius, `bounded particle at ${j / 3}: ${radius}`);
-    if (radius < .75) nucleus++;
+    if (radius < .4) nucleus++;
+    if (radius < 1.2) star++;
+    if (form.colours[j + 2] > .05) luminous++;
     if (radius > 2) outer++;
+    assert.ok(form.colours[j + 2] >= form.colours[j] && form.colours[j + 2] >= form.colours[j + 1], 'cool stellar palette');
     for (let c = 0; c < 3; c++) assert.ok(Number.isFinite(form.colours[j + c])
       && form.colours[j + c] > 0 && form.colours[j + c] < 1);
   }
   if (count >= 9000) {
-    assert.ok(nucleus > count * .06 && nucleus < count * .12, 'compact nucleus');
+    assert.ok(nucleus > count * .065 && nucleus < count * .13, 'tight nucleus remains distinct from its corona');
+    assert.ok(star > count * .20 && star < count * .25, 'substantial star, corona and radial filaments');
+    assert.ok(luminous > count * .7, 'most of the pool contributes visible light');
     assert.ok(outer > count * .5, 'most particles articulate the orbital form');
   }
 }
 
-for (const count of [32000, 9000]) {
+for (const count of [48000, 32000, 9000]) {
   test(`${count} particles fill deterministic, finite bounded targets over time`, () => {
     const a = createOrbital(count), b = createOrbital(count);
     assert.deepEqual(a.positions, b.positions);

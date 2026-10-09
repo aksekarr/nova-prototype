@@ -1,0 +1,18 @@
+.orbit-hud {
+  position: fixed; inset: env(safe-area-inset-top, 0px) 0 auto;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 24px;
+  padding: 24px; pointer-events: none;
+}
+.orbit-count {
+  margin: 4px 0 0; color: var(--dim); font-size: .68rem;
+  font-variant-numeric: tabular-nums; letter-spacing: .08em;
+}
+.orbit-count span { color: var(--ink); }
+.orbit-controls {
+  position: fixed; inset: auto 0 calc(env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex; justify-content: center;
+}
+@media (max-width: 560px) {
+  .orbit-hud { padding: 18px; gap: 16px; }
+  .orbit-count { font-size: .6rem; }
+}
