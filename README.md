@@ -73,7 +73,7 @@ Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, 
 
 - `spike/agent.html`: live-agent test bench. It connects to the ElevenLabs agent (paste the agent ID each run; it is never stored) and logs timing, text and output volume. Downloaded logs contain your own speech, so never commit them.
 
-- `movement.html`: local movement comparison with a **Fluid shape** switch. Neutral shows a flowing silhouette; **Simulate your turn** demonstrates attention gathering for nine seconds and then relaxing. Cached speech and expression controls reuse the actual face driver, with no live service or microphone. Switch off Fluid shape to compare the approved conversation-motion baseline.
+- `movement.html`: local movement comparison with a **Fluid shape** switch. Neutral shows a flowing silhouette; **Simulate your turn** demonstrates attention gathering for nine seconds and then relaxing. Cached speech and expression controls reuse the actual face driver, with no live service or microphone. Switch off Fluid shape to compare the earlier conversation-motion baseline. **Travelling speech** varies the direction and outer-particle delay of ordinary speech accents; switch it off and replay cached speech to compare with the approved vertical accents.
 
 ## Code organisation and checks
 
@@ -96,7 +96,12 @@ During conversation, **Curious** uses a focused expression with knitted, lowered
 brows and a centred gaze; **Thoughtful** retains its separate thinking pose.
 Ordinary speech uses restrained, voice-beat-driven stretch/rebound accents, with
 at least 2.6 seconds between starts. Laugh/chuckle gestures keep their separate
-compression and timing.
+compression and timing. Ordinary accents now carry a directional sweep through
+the outer particles, rotating among four directions without adding random draws
+or extra triggers. Their timing follows playback, holds through audio gaps and
+releases continuously on interruption or a laugh handover. Eyes, nose and lips
+retain their original protected deformation. Reduced motion keeps the earlier
+accent field and suppresses the new directional sweep.
 
 Neutral and listening moments now have a display-only silhouette flow: the outer
 form changes width, length and asymmetry while the eyes, nose and lips stay

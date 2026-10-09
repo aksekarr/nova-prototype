@@ -14,7 +14,7 @@ const face = createFace(shapes, reduce);
 const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
-let mode = 'neutral', began = 0, tuning, flowing = true;
+let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true;
 let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0;
 
 function choose(next) {
@@ -33,7 +33,7 @@ startStage({
   shapes, reduce, state, nebulaEnhancement: true,
   applyFaceTuning(value) {
     tuning = value;
-    face.applyTuning({ ...value, formAmount: flowing ? 1 : 0 });
+    face.applyTuning({ ...value, formAmount: flowing ? 1 : 0, speechFlowAmount: travelling ? 1 : 0 });
   },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
@@ -58,6 +58,7 @@ startStage({
       metrics.textContent = JSON.stringify({ mode, frames, nonfinite, reduced: reduce,
         accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
         head: face.diagnostics.head, form: face.diagnostics.form,
+        speechFlow: shapes.headDisplay.diagnostics.accent.flow,
         expression: { browL: face.diagnostics.expression.browL,
           browKnit: face.diagnostics.expression.browKnit,
           mouthOpen: face.diagnostics.expression.mouthOpen }
@@ -83,4 +84,9 @@ document.getElementById('speech').onclick = async () => {
 document.getElementById('flow').onchange = event => {
   flowing = event.target.checked;
   face.applyTuning({ formAmount: flowing ? 1 : 0 });
+};
+
+document.getElementById('speech-flow').onchange = event => {
+  travelling = event.target.checked;
+  face.applyTuning({ speechFlowAmount: travelling ? 1 : 0 });
 };

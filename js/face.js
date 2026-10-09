@@ -2,6 +2,7 @@ import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 import { createFaceForm } from './face-form.js';
+import { createSpeechFlow } from './speech-flow.js';
 
 import { POSE_CONTROLS, NEUTRAL_POSE, EXPR,
   createCueExpressions, createBrowFlashes, createMicroExpressions } from './face-expressions.js';
@@ -356,6 +357,9 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   }
   const form = createFaceForm({ base: BASE, edge: gestureEdge, end: filamentEnd, width, height,
     centreX: (minX + maxX) * .5, centreY: (minY + maxY) * .5 }, reduce);
+  const speechFlow = createSpeechFlow({ base: BASE, edge: gestureEdge, end: filamentEnd,
+    width, height, pivotY });
+  let speechFlowAmount = reduce ? 0 : 1;
   const BUCKETS = 32, SAMPLES = 64, STEP = 1 / 120;
   const history = new Float64Array(SAMPLES * 5);
   const previous = new Float64Array(5), current = new Float64Array(5), sample = new Float64Array(5);
@@ -388,7 +392,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     delay: gestureDelay, edge: gestureEdge, values: gestureValues };
   diagnostics.gesture = gestureState;
   const accentState = { value: 0, time: 0, activeId: null, starts: 0,
-    lastStart: -Infinity, duration: 0 };
+    lastStart: -Infinity, duration: 0, flow: speechFlow.state };
   diagnostics.accent = accentState;
 
   function setGestureDelays(settings = gestureSettings) {
@@ -466,10 +470,15 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     gestureWiden = gestureKind === 'accent' ? gesture.settings.widen
       : lerp(sourceWiden, gestureSettings.widen, gestureNow[2]);
     for (let i = 0; i < count; i++) {
-      if (gestureDelay[i] === 0) { gestureValues[i] = gestureCore; continue; }
+      if (gestureDelay[i] === 0) {
+        gestureValues[i] = gestureCore;
+        speechFlow.write(i, gestureCore, gestureNow[2]);
+        continue;
+      }
       sampleGesture(gesture.age - gestureDelay[i], gestureSample);
       gestureValues[i] = gestureSource[i] * (1 - gestureSample[2])
         + gestureSample[0] + gestureEdge[i] * gestureSample[1];
+      speechFlow.write(i, gestureValues[i], gestureSample[2]);
     }
   }
 
@@ -478,12 +487,14 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     gestureVisible = false; gestureCore = 0;
     gestureKind = null;
     gestureValues.fill(0); gestureSource.fill(0);
+    speechFlow.clear();
     gestureState.activeId = null;
   }
 
   function recoverGesture() {
     if (!gestureVisible || recovery) return;
     gestureSource.set(gestureValues); sourceCore = gestureCore;
+    speechFlow.capture();
     recovery = { age: 0, duration: gestureKind === 'accent' ? gesture.settings.settle : gestureSettings.settle };
     gesture = null;
     gestureState.activeId = null;
@@ -500,6 +511,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   function startGesture(window, position) {
     const continuing = gestureVisible;
     gestureSource.set(gestureValues); sourceCore = gestureCore;
+    speechFlow.capture();
     sourceWiden = continuing ? gestureWiden : gestureSettings.widen;
     gestureKind = 'gesture';
     setGestureDelays();
@@ -518,14 +530,16 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     // Only a resting field can start an accent. Laughter reuses startGesture's
     // existing handover from the displayed field, never a second deformation.
     const settings = { ...accentSettings };
+    setGestureDelays(settings);
+    speechFlow.start(accentState.starts, speechFlowAmount, gestureDelay);
+    const extraDelay = speechFlowAmount > 0 ? .24 : 0;
     const duration = settings.attack + settings.hold + settings.release + settings.settle
-      + Math.max(settings.coreDelay, settings.edgeDelay);
-    const delay = Math.max(settings.coreDelay, settings.edgeDelay);
+      + Math.max(settings.coreDelay, settings.edgeDelay) + extraDelay;
+    const delay = Math.max(settings.coreDelay, settings.edgeDelay) + extraDelay;
     gestureKind = 'accent';
     sourceWiden = gestureWiden = settings.widen;
     sourceCore = 0;
     gestureSource.fill(0);
-    setGestureDelays(settings);
     gesture = { id: `accent:${beat.position}`, start: beat.position,
       age: Math.max(0, position - beat.position), settings, duration,
       strength: settings.direction * settings.amount * accentAmount * (0.7 + 0.3 * clamp(beat.strength, 0, 1)) };
@@ -560,6 +574,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
       const fade = 1 - swarmSmooth(recovery.duration > 0 ? recovery.age / recovery.duration : 1);
       gestureCore = sourceCore * fade;
       for (let i = 0; i < count; i++) gestureValues[i] = gestureSource[i] * fade;
+      speechFlow.fade(fade);
       if (fade === 0) restGesture();
     } else if (gesture) {
       const window = gestureKind === 'accent' ? null : windows.find(window => window.id === gesture.id);
@@ -693,8 +708,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     if (gestureVisible) {
       for (let i = 0, j = 0; i < count; i++, j += 3) {
         const value = gestureValues[i] * amount * (i < filamentEnd ? attachment[i] : 0);
-        gestured[j] = localSource[j] - (localSource[j] - pivotX) * value * gestureWiden;
-        gestured[j + 1] = localSource[j + 1] + (localSource[j + 1] - pivotY) * value;
+        gestured[j] = localSource[j] - (localSource[j] - pivotX) * value * gestureWiden
+          + speechFlow.x[i] * amount * (i < filamentEnd ? attachment[i] : 0);
+        gestured[j + 1] = localSource[j + 1] + (localSource[j + 1] - pivotY) * value
+          + speechFlow.y[i] * amount * (i < filamentEnd ? attachment[i] : 0);
         gestured[j + 2] = localSource[j + 2];
       }
       localSource = gestured;
@@ -732,6 +749,8 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   return { update, updateGesture, updateForm: form.update, apply, transformPoint, diagnostics,
     setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
     applyTuning(tuning) {
+    if (!reduce && Number.isFinite(tuning.speechFlowAmount))
+      speechFlowAmount = clamp(tuning.speechFlowAmount, 0, 1);
     if (Number.isFinite(tuning.formAmount)) form.setAmount(tuning.formAmount);
     if (Number.isFinite(tuning.gestureAmount)) gestureAmount = clamp(tuning.gestureAmount, 0, 2);
     if (Number.isFinite(tuning.accentAmount)) accentAmount = clamp(tuning.accentAmount, 0, 2);
