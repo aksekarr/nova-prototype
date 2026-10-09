@@ -8,6 +8,8 @@ async function loadModule(path) {
 }
 const { createFormMorph } = await loadModule('../js/form-morph.js');
 const { createOrbital } = await loadModule('../js/orbital.js');
+const { createJellyfish } = await loadModule('../js/jellyfish.js');
+const { createJellyMotion } = await loadModule('../js/jelly-motion.js');
 const COUNT = 48000;
 
 function facePool(count = COUNT) {
@@ -262,4 +264,113 @@ test('reduced motion bypasses centre gathering for a short direct move', () => {
     assert.deepEqual(gather.positions, direct.positions);
     assert.deepEqual(gather.colours, direct.colours);
   }
+});
+
+
+test('electric release leaves gathering and settling exact, with a brief sparse blue-white expansion', () => {
+  const orbit = createOrbital(COUNT);
+  const ordinary = createFormMorph(face.positions, orbit.positions);
+  const electric = createFormMorph(face.positions, orbit.positions);
+  ordinary.begin(face.positions, face.colours, 0, { gather: true });
+  electric.begin(face.positions, face.colours, 0, { gather: true, electric: true });
+  for (const time of [0, .3, .9, .96, 1.64, 1.8, 2, 6]) {
+    orbit.update(time);
+    ordinary.sample(time, orbit.positions, orbit.colours);
+    electric.sample(time, orbit.positions, orbit.colours);
+    assert.deepEqual(electric.positions, ordinary.positions, `original path outside the discharge at ${time}s`);
+    assert.deepEqual(electric.colours, ordinary.colours, `original light outside the discharge at ${time}s`);
+  }
+  orbit.update(1.3);
+  ordinary.sample(1.3, orbit.positions, orbit.colours);
+  electric.sample(1.3, orbit.positions, orbit.colours);
+  let lit = 0, redGain = 0, blueGain = 0, originalRadius = 0, dischargeRadius = 0;
+  for (let i = 0; i < COUNT; i++) {
+    const j = i * 3;
+    const red = electric.colours[j] - ordinary.colours[j];
+    const blue = electric.colours[j + 2] - ordinary.colours[j + 2];
+    if (blue > .01) {
+      lit++;
+      redGain += red; blueGain += blue;
+    }
+    for (let c = 0; c < 3; c++) {
+      originalRadius += ordinary.positions[j + c] ** 2;
+      dischargeRadius += electric.positions[j + c] ** 2;
+      assert.ok(electric.colours[j + c] >= 0 && electric.colours[j + c] <= .980001);
+    }
+  }
+  assert.ok(lit > COUNT * .04 && lit < COUNT * .08, `${lit} bright grains keep the flash local`);
+  assert.ok(blueGain > redGain * 1.3, 'the added light is predominantly cool, allowing saturated grains');
+  assert.ok(dischargeRadius > originalRadius * 1.3, 'outward formation has a visible extra kick');
+});
+
+test('electric release is opt-in and bypassed for direct, reverse and reduced motion', () => {
+  const source = facePool(4000), orbit = createOrbital(4000);
+  for (const [reduce, options] of [
+    [false, {}], [false, { reverse: true, gather: true }], [true, { gather: true }]
+  ]) {
+    const ordinary = createFormMorph(source.positions, orbit.positions, { reduce });
+    const electric = createFormMorph(source.positions, orbit.positions, { reduce });
+    ordinary.begin(source.positions, source.colours, 0, options);
+    electric.begin(source.positions, source.colours, 0, { ...options, electric: true });
+    for (const time of [0, .21, .3, .42, 1.3, 2]) {
+      ordinary.sample(time, orbit.positions, orbit.colours);
+      electric.sample(time, orbit.positions, orbit.colours);
+      assert.deepEqual(electric.positions, ordinary.positions);
+      assert.deepEqual(electric.colours, ordinary.colours);
+    }
+  }
+});
+
+test('48K electric jellyfish release stays bounded, deterministic and live without replacing buffers', () => {
+  const jelly = createJellyfish(COUNT), motion = createJellyMotion(), orbit = createOrbital(COUNT);
+  jelly.update(8); motion.apply(jelly.positions, 8, 16 / 9);
+  const morph = createFormMorph(face.positions, orbit.positions);
+  const positions = morph.positions, colours = morph.colours, mapping = morph.mapping;
+  const originalRandom = Math.random;
+  Math.random = () => { throw new Error('Discharge used global RNG.'); };
+  try {
+    morph.begin(jelly.positions, jelly.colours, 0, { gather: true, electric: true });
+    let peak;
+    for (const time of [.9, .97, 1.05, 1.2, 1.3, 1.45, 1.6, 1.64, 2, 5, 1.3]) {
+      orbit.update(time); morph.sample(time, orbit.positions, orbit.colours);
+      for (let j = 0; j < positions.length; j += 3) {
+        assert.ok(Number.isFinite(positions[j]) && Number.isFinite(positions[j + 1]) && Number.isFinite(positions[j + 2]));
+        assert.ok(Math.hypot(positions[j], positions[j + 1], positions[j + 2]) <= orbit.bounds.radius,
+          'gathered release stays inside the existing atom framing');
+        for (let c = 0; c < 3; c++) assert.ok(Number.isFinite(colours[j + c]) && colours[j + c] >= 0 && colours[j + c] <= .980001);
+      }
+      if (time >= 2) checkMapped(morph, orbit);
+      if (time === 1.3) {
+        if (peak) {
+          assert.deepEqual(positions, peak.positions, 'absolute-time seek returns to the same discharge');
+          assert.deepEqual(colours, peak.colours);
+        } else peak = { positions: positions.slice(), colours: colours.slice() };
+      }
+    }
+  } finally { Math.random = originalRandom; }
+  assert.equal(morph.positions, positions);
+  assert.equal(morph.colours, colours);
+  assert.equal(morph.mapping, mapping);
+});
+
+test('interrupting a discharge preserves the visible frame and the next begin clears its effect', () => {
+  const source = facePool(4000), orbit = createOrbital(4000);
+  const morph = createFormMorph(source.positions, orbit.positions);
+  morph.begin(source.positions, source.colours, 0, { gather: true, electric: true });
+  morph.sample(1.3, orbit.positions, orbit.colours);
+  const before = { positions: morph.positions.slice(), colours: morph.colours.slice() };
+  morph.begin(morph.positions, morph.colours, 1.3, { reverse: true });
+  morph.sample(1.3, source.positions, source.colours);
+  assert.deepEqual(morph.positions, before.positions);
+  assert.deepEqual(morph.colours, before.colours);
+  morph.sample(3.3, source.positions, source.colours);
+  assert.deepEqual(morph.positions, source.positions);
+  assert.deepEqual(morph.colours, source.colours);
+  const ordinary = createFormMorph(source.positions, orbit.positions);
+  morph.begin(source.positions, source.colours, 10, { gather: true });
+  ordinary.begin(source.positions, source.colours, 10, { gather: true });
+  morph.sample(11.3, orbit.positions, orbit.colours);
+  ordinary.sample(11.3, orbit.positions, orbit.colours);
+  assert.deepEqual(morph.positions, ordinary.positions, 'previous electric opt-in cannot leak into another move');
+  assert.deepEqual(morph.colours, ordinary.colours);
 });

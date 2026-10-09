@@ -6,6 +6,7 @@ import { createShapes } from '../js/shapes.js';
 import { createJellyfish } from '../js/jellyfish.js';
 import { createJellyMotion } from '../js/jelly-motion.js';
 import { createLotus } from '../js/lotus.js';
+import { createFormMorph } from '../js/form-morph.js';
 
 function facePool(count) {
   const positions = new Float32Array(count * 3), colours = new Float32Array(count * 3);
@@ -270,4 +271,23 @@ test('a repeat atom-to-lotus visit resets its bloom clock and resize keeps the s
     assert.equal(forms.positions, positions);
     assert.equal(forms.colours, colours);
   }
+});
+
+
+test('landing jellyfish-to-atom uses the electric release and lands on the unchanged live atom', () => {
+  const face = facePool(4000), count = 6000, forms = createLandingForms({ shapes: face, idleCount: count });
+  const template = new Float32Array(count * 3);
+  for (let j = 0; j < template.length; j++) template[j] = face.positions[j % face.positions.length];
+  const orbit = createOrbital(count), expected = createFormMorph(template, orbit.positions);
+  forms.select('jelly', 1); forms.begin(face.positions, face.colours, 1, 1.7);
+  forms.sample(4, 1.7);
+  expected.begin(forms.positions, forms.colours, 4, { gather: true, electric: true });
+  forms.select('orbit', 4); forms.begin(forms.positions, forms.colours, 4, 1.7);
+  for (const time of [4, 4.9, 5.3, 5.9, 6, 9]) {
+    orbit.update(time); expected.sample(time, orbit.positions, orbit.colours);
+    forms.sample(time, 1.7);
+    assert.deepEqual(forms.positions, expected.positions);
+    assert.deepEqual(forms.colours, expected.colours);
+  }
+  assert.equal(forms.settledMode, 'orbit');
 });

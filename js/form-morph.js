@@ -95,8 +95,8 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
     speedPower[i] = 2.6 + 2.8 * (.65 * variation + .35 * field);
   }
 
-  let started = false, startTime = 0, progress = 0, reverseTarget = false, centreGather = false;
-  function begin(sourcePositions, sourceColours, clock, { reverse = false, gather = false } = {}) {
+  let started = false, startTime = 0, progress = 0, reverseTarget = false, centreGather = false, electricRelease = false;
+  function begin(sourcePositions, sourceColours, clock, { reverse = false, gather = false, electric = false } = {}) {
     checkPool(sourcePositions, length); checkPool(sourceColours, length);
     // Snapshot first: callers may pass our own output when interrupting a move.
     startPositions.set(sourcePositions); startColours.set(sourceColours);
@@ -104,6 +104,7 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
     startTime = Number.isFinite(clock) ? clock : 0;
     started = true; progress = 0; reverseTarget = reverse;
     centreGather = gather && !reverse && !reduce;
+    electricRelease = centreGather && electric;
     return api;
   }
 
@@ -112,6 +113,14 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
     if (!started) return api;
     const elapsed = Number.isFinite(clock) ? Math.max(0, clock - startTime) : 0;
     progress = Math.min(1, elapsed / durationSeconds);
+    // One short discharge after gathering: no flicker during the inward leg,
+    // and no residual effect once the atom settles. Absolute time keeps seeks
+    // and interrupted returns independent of the frame rate.
+    const dischargeAge = (progress - .48) / .34;
+    const discharge = electricRelease && dischargeAge > 0 && dischargeAge < 1
+      ? Math.sin(Math.PI * dischargeAge) ** 2 : 0;
+    const channel = 1 - (1 - discharge) ** 4;
+    const reach = 1.2 + 2.2 * Math.min(1, Math.max(0, dischargeAge * 2.5));
     for (let i = 0; i < count; i++) {
       const j = i * 3, destination = reverseTarget ? j : mapping[i] * 3;
       if (progress === 1) {
@@ -141,6 +150,8 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
         const releaseStart = .34 + .1 * stagger;
         const time = Math.max(0, (u - releaseStart) / (1 - releaseStart));
         release = time ** 3 * (10 + time * (-15 + time * 6));
+        // A fast outward kick rides over the original release, then vanishes.
+        release += .22 * discharge * (.6 + .4 * stagger);
         curl = .12 * 4 * pull * (1 - pull);
       }
       for (let c = 0; c < 3; c++) {
@@ -149,6 +160,29 @@ export function createFormMorph(sourceTemplate, targetTemplate, { duration = 2, 
           : startPositions[j + c] + (targetPositions[destination + c] - startPositions[j + c]) * ease + arcs[j + c] * excursion;
         colours[j + c] = startColours[j + c]
           + (targetColours[destination + c] - startColours[j + c]) * ease;
+      }
+      if (discharge > 0) {
+        const hash = Math.imul(i + 1, 0x9e3779b1) >>> 0;
+        // Reuse 1/16 of the pool for nine fine, forked blue-white channels.
+        // Neighbouring grains share a fixed zigzag rather than random jitter.
+        if ((hash & 15) === 0) {
+          const lane = (hash >>> 5) % 9, along = (hash >>> 9) / 8388608;
+          const angle = lane * Math.PI * 2 / 9 + .11 * Math.sin(lane * 2.7);
+          const x = Math.cos(angle), y = Math.sin(angle);
+          const tooth = 4 * Math.abs((along * 6.5 + lane * .13) % 1 - .5) - 1;
+          const fork = (hash & 256) === 0 ? 0 : Math.max(0, along - .54) * .44;
+          const bend = tooth * .15 * Math.sin(Math.PI * along) + fork;
+          const distance = (.06 + .94 * along) * reach;
+          const tx = x * distance - y * bend, ty = y * distance + x * bend;
+          const tz = Math.sin(lane * 2.1) * .24 * distance + tooth * .055;
+          positions[j] += (tx - positions[j]) * channel;
+          positions[j + 1] += (ty - positions[j + 1]) * channel;
+          positions[j + 2] += (tz - positions[j + 2]) * channel;
+          const light = discharge * (.45 + .55 * along);
+          colours[j] = Math.min(.98, colours[j] + light * .55);
+          colours[j + 1] = Math.min(.98, colours[j + 1] + light * .78);
+          colours[j + 2] = Math.min(.98, colours[j + 2] + light * .98);
+        }
       }
     }
     return api;

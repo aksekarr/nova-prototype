@@ -96,6 +96,7 @@ export function createLandingForms({ shapes, reduce = false, idleCount = 48000 }
       : isIdle(selected) ? orbitMorph : morph || orbitMorph;
     morph.begin(positions, colours, clock, {
       reverse: !isIdle(selected), gather: sourceMode === 'jelly' && selected === 'orbit',
+      electric: sourceMode === 'jelly' && selected === 'orbit',
       outlet, inlet: motion.inlet,
       orbit: selected === 'lotus' && fromAtom ? orbit : null, sourceMapping: orbitMorph.mapping
     });
