@@ -363,9 +363,9 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE) {
   let gestureSettings = { anticipation: 0.08, compress: 0.12, hold: 0.1,
     release: 0.25, settle: 0.4, amount: 0.04, chuckleScale: 0.75,
     widen: 0.5, overshoot: 0.2, coreDelay: 0.04, edgeDelay: 0.15, edgeOvershoot: 0.5 };
-  const accentSettings = { direction: 1, amount: 0.029, attack: 0.25, hold: 0.2,
-    release: 0.4, overshoot: 0.06, settle: 0.5, coreDelay: 0.02, edgeDelay: 0.12,
-    edgeOvershoot: 0.5, widen: 0.5, spacing: 2.9, threshold: 0 };
+  const accentSettings = { direction: 1, amount: 0.036, attack: 0.18, hold: 0.12,
+    release: 0.36, overshoot: 0.06, settle: 0.45, coreDelay: 0.02, edgeDelay: 0.12,
+    edgeOvershoot: 0.5, widen: 0.5, spacing: 2.6, threshold: 0 };
   let accentAmount = 1, lastAccent = -Infinity, accentUntil = -Infinity;
   let accentCueMap = {}, accentSighRelease = 0.8, previousGestureWindows = [];
   let gestureKind = null, gestureWiden = gestureSettings.widen, sourceWiden = gestureWiden;
