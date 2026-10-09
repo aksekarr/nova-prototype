@@ -168,7 +168,7 @@ const TUNING = {
 };
 const BLOOM_RESOLUTION_SCALE = 0.5;
 
-export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null }) {
+export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFaceTuning, speechLab, orbital = null, formMorph = null, idleForm = orbital }) {
   const { N, FEATURE_END = 0, PH, RATE, FACE, FACE_COL, SIZE, NEB, NEB_COL, TREE, TREE_COL } = shapes;
   const hasFace = Boolean(shapes.MAPS);
   const canvas = document.getElementById('stage');
@@ -532,7 +532,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     if (changed) {
       // Preview vertices are always in display coordinates, including their
       // head and pointer rotation. Snapshot the exact last rendered frame.
-      formMorph.begin(DISPLAY_POS, COL, clock, { reverse: mode === 'face' });
+      formMorph.begin(DISPLAY_POS, COL, clock, { reverse: mode === 'face', ...idleForm.morphOptions?.() });
       formMode = mode; formStarted = true;
       formAppearance = uniforms.faceDisplayMix.value;
       formDepth = camera.position.z;
@@ -570,9 +570,9 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
       }
       targetPositions = frameTargets; targetColours = formFaceColours;
     } else {
-      targetPositions = orbital.positions; targetColours = orbital.colours;
+      targetPositions = idleForm.positions; targetColours = idleForm.colours;
     }
-    if (formStarted && (formMorph.active || mode === 'orbit')) {
+    if (formStarted && (formMorph.active || mode !== 'face')) {
       formMorph.sample(clock, targetPositions, targetColours);
       DISPLAY_POS.set(formMorph.positions); COL.set(formMorph.colours);
     } else {
@@ -585,7 +585,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     geom.attributes.position.needsUpdate = true;
     geom.attributes.color.needsUpdate = true;
     const orbitSlope = slope * Math.min(0.84, camera.aspect * 0.84);
-    const targetDepth = mode === 'face' ? mapFitDepth : orbital.bounds.radius * Math.sqrt(1 + 1 / (orbitSlope * orbitSlope));
+    const targetDepth = mode === 'face' ? mapFitDepth : idleForm.cameraDepth?.(camera.aspect, slope)
+      ?? idleForm.bounds.radius * Math.sqrt(1 + 1 / (orbitSlope * orbitSlope));
     camera.position.z = formMorph.active ? formDepth + (targetDepth - formDepth) * ease
       : camera.position.z + (targetDepth - camera.position.z) * Math.min(1, dt * 3);
     camera.position.x += (mouse.x * 0.6 - camera.position.x) * Math.min(1, dt * 1.5);
@@ -632,7 +633,8 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
     const { mode, modeT, clock } = state;
     onFrame(dt, clock);
     updateFace(dt, clock);
-    if (mode === 'orbit') orbital.update(clock);
+    if (formMorph && mode !== 'face') idleForm.update(clock);
+    else if (mode === 'orbit') orbital.update(clock);
     if (formMorph) {
       frameFormMorph(dt, elapsed, mode, clock);
       requestAnimationFrame(frame);
