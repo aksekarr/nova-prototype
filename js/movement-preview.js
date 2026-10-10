@@ -14,11 +14,20 @@ const face = createFace(shapes, reduce);
 const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
+const timingStatus = document.getElementById('timing-status');
+let timingVersion = 'approved', timingChoice = 'thoughtful', timingWithSpeech = false, expressiveEdges = true;
+let timingPending = false, timingError = '';
+const timingActive = () => mode.startsWith('timing-');
 let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
 let eyeStyle = 'auto', eyeMoments = true, expressiveMoods = true;
 let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
 const tagExamples = { curious: 'curious', thoughtful: 'thoughtful', chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
-  confidently: 'confidently', warmly: 'warmly' };
+  confidently: 'confidently', warmly: 'warmly', cheerful: 'cheerful', excited: 'excited' };
+const labelFor = name => name[0].toUpperCase() + name.slice(1);
+const expressionTuning = () => ({
+  sustainMoods: !timingActive() || timingVersion === 'approved',
+  moodEdgeAmount: expressiveEdges ? 1 : 0
+});
 function tagTuning() {
   const cueMap = { ...tuning.cueMap };
   if (!updatedTags) Object.assign(cueMap, {
@@ -38,6 +47,29 @@ function choose(next) {
   began = state.clock;
   occurrence++;
   maxAccent = 0;
+  timingPending = false;
+  timingError = '';
+  face.applyTuning(expressionTuning());
+}
+
+async function playTiming(name = timingChoice) {
+  timingChoice = name;
+  choose(`timing-${name}`);
+  if (!timingWithSpeech) return;
+  const request = occurrence;
+  timingPending = true;
+  try {
+    await voice.activate();
+    await voice.preload(['lab-slow']);
+    if (!timingActive() || occurrence !== request) return;
+    timingPending = false;
+    face.setReplyText(voice.getLabLine('lab-slow').text);
+    await voice.speak('lab-slow');
+  } catch {
+    if (occurrence !== request) return;
+    timingPending = false;
+    timingError = 'Cached speech could not play. Switch off “With cached speech” to try silently.';
+  }
 }
 
 startStage({
@@ -46,19 +78,26 @@ startStage({
     tuning = value;
     face.applyTuning({ ...value, ...tagTuning(), formAmount: flowing ? 1 : 0,
       speechFlowAmount: travelling ? 1 : 0, eyeStyle, eyeMoments,
-      moodPerformanceAmount: expressiveMoods ? 1 : 0 });
+      moodPerformanceAmount: expressiveMoods ? 1 : 0,
+      ...expressionTuning() });
   },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
-    const age = clock - began, speech = mode === 'speech';
-    const tag = tagExamples[mode];
-    const cues = tag && age < 4.8 ? {
-      replyId: `preview:${occurrence}`, position: age, state: 'speaking',
-      cues: [{ id: 'preview-tag', type: 'tag', name: tag, start: 0, end: .5 }]
-    } : speech ? voice.currentCues() : null;
+    const age = clock - began, testingTiming = timingActive();
+    const speech = mode === 'speech' || (testingTiming && timingWithSpeech);
+    const played = speech ? voice.currentCues() : null;
+    const tag = tagExamples[testingTiming ? timingChoice : mode];
+    const synthetic = [{ id: 'preview-tag', type: 'tag', name: tag, start: 0, end: .5 }];
+    // Both timing versions use one recording and the real audio clock/mouth.
+    // Replace its delivery tags with the selected test cue; the audio is unchanged.
+    const cues = testingTiming && timingWithSpeech ? played && {
+      ...played, cues: [...synthetic, ...played.cues.filter(cue => cue.type !== 'tag')]
+    } : tag && age < 10 ? {
+      replyId: `preview:${occurrence}`, position: age, state: 'speaking', cues: synthetic
+    } : played;
     const listening = mode === 'listening';
     const input = listening && age < 9 ? .18 : 0;
-    state.speaking = speech && Boolean(voice.currentCues());
+    state.speaking = speech && Boolean(played);
     face.update(dt, clock, cues, speech ? voice.currentEnvelope() : 0,
       voice.currentShape(), state.speaking, voice.lastReplyEnd(), listening, null, input);
     frames++;
@@ -68,11 +107,19 @@ startStage({
     }
     if (clock - metricsAt > .2) {
       metricsAt = clock;
+      if (testingTiming) {
+        const label = `${labelFor(timingChoice)} · ${timingVersion === 'approved' ? 'Approved timing' : 'Previous timing'}`;
+        const position = timingWithSpeech ? played?.position : Math.min(age, 10);
+        timingStatus.textContent = timingError || `${label} · ${timingPending ? 'Loading speech…'
+          : position === undefined || (!timingWithSpeech && age >= 10) ? 'Finished — replay or switch timing'
+          : `${timingWithSpeech ? 'Cached speech' : 'Silent'} · ${position.toFixed(1)} s`}`;
+      } else timingStatus.textContent = 'Choose an expression. Switching timing replays your choice.';
       metrics.textContent = JSON.stringify({ mode, frames, nonfinite, reduced: reduce,
+        timingVersion: testingTiming ? timingVersion : null, cues: face.diagnostics.cues,
         accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
         head: face.diagnostics.head, form: face.diagnostics.form,
         eyes: face.diagnostics.eyes,
-        performance: face.diagnostics.performance,
+        performance: face.diagnostics.performance, moodEdges: face.diagnostics.moodEdges,
         speechFlow: shapes.headDisplay.diagnostics.accent.flow,
         gesture: { kind: shapes.headDisplay.diagnostics.gesture.kind,
           value: shapes.headDisplay.diagnostics.gesture.value,
@@ -89,6 +136,23 @@ for (const name of ['neutral', 'listening', ...Object.keys(tagExamples)]) {
   document.getElementById(name).onclick = () => choose(name);
 }
 document.getElementById('stop').onclick = () => choose('neutral');
+for (const name of Object.keys(tagExamples)) {
+  document.getElementById(`timing-${name}`).onclick = () => playTiming(name);
+}
+for (const input of document.querySelectorAll('input[name="mood-timing"]')) {
+  input.onchange = () => {
+    timingVersion = input.value;
+    if (timingActive()) playTiming();
+  };
+}
+document.getElementById('expressive-edges').onchange = event => {
+  expressiveEdges = event.target.checked;
+  face.applyTuning(expressionTuning());
+};
+document.getElementById('timing-speech').onchange = event => {
+  timingWithSpeech = event.target.checked;
+  if (timingActive()) playTiming();
+};
 document.getElementById('speech').onclick = async () => {
   choose('speech');
   const request = began;

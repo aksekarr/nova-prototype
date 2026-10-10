@@ -105,17 +105,48 @@ with `?live=1`. Pure pose and expression controllers live in
 `js/face-expressions.js`, with their existing exports also available from
 `js/face.js`.
 
-Avi approved the expressive mood pass on 10 Oct 2026; it is enabled by default.
-The four quieter mood tags now give the outer form a coordinated, finite beat:
+Avi approved the expressive mood pass and its timing/edge-flow follow-up on
+10 Oct 2026. All are enabled by default in conversation and capture replay.
 **Thoughtful** tilts elastically with an asymmetric gather, **Curious** gathers
 upright and centres its gaze, **Confidently** settles taller, and **Warmly**
-broadens softly. Their existing eye poses and 3.5-second cue envelopes remain
-authoritative. During their peak, competing facial micro motion is reduced and
-brow flashes/new ordinary accents yield; particle flow and speech articulation
-continue. Authored tilt has a separate smoothed, speed-limited contribution;
-incidental speech-roll limits and random scheduling are unchanged. The protected
-eyes/nose/lips stay clear of silhouette deformation. Reduced motion omits the
-new body/gaze contribution. Capture replay uses this same driver.
+broadens softly. Their existing eye poses remain authoritative. Competing facial
+micro motion reduces during the peak; brow flashes/new ordinary accents yield.
+Authored tilt is smoothed and speed-limited; incidental speech-roll limits and
+random scheduling are unchanged. Speech articulation and particle flow continue.
+
+Moods retain their 0.5-second arrival and 2-second peak, soften into a moving
+attitude, then retire: Thoughtful at 48% of peak until its 8.1-second finish;
+Warmly at 55% / 8.7 s; Curious at 42% / 7 s; Confidently at 58% / 7.8 s.
+The existing cheerful/happy and excited aliases receive the same staging
+(50% / 7.8 s and 40% / 6.7 s). Early completion/interruption releases the
+currently visible contribution, gaps hold, and later mood cues take over.
+Laugh/chuckle/sigh geometry and event timing retain their approved beats.
+
+`js/mood-edge-flow.js` adds a display-only response to the outer particles and
+filaments, using the authoritative expression weights and playback clock:
+
+- Thoughtful: the approved asymmetric inward curl.
+- Warmly: the approved soft outward ripple.
+- Curious: narrow, converging upward streams.
+- Confidently: a steady, lifting fan.
+- Chuckle/Laughing: a small playful ripple or fuller buoyant ripple, scaled by
+  their existing distinct reaction strengths.
+- Sighs: a downward, outward wash accompanying the exhale.
+- Cheerful/happy: a relaxed radial breath; excited: a brighter upward bloom.
+
+Responses blend continuously, remain active through a mood's softer attitude,
+hold their phase through audio gaps and inherit phase across replies. Protected
+eyes/nose/lips, detached core particles, loose background stars, original
+filament paths and colour/lifetime clocks stay intact. Reduced motion omits the
+body/gaze and edge-flow contributions.
+
+`movement.html` exposes every example with **Approved timing** selected.
+**Previous timing** retains the earlier 3.5-second mood beat. Switching timing
+replays the selected example; **Expressive edges** compares the same timing with
+and without its response. Optional cached speech uses one existing `lab-slow`
+recording with an injected test cue; the voice player's audio clock and mouth
+articulation remain authoritative. The tuning panel's **Expressive edge flow**
+slider also supports capture replay comparisons.
 
 **Expressive moods** in `movement.html` compares this pass with the previous
 performance. Curious and Thoughtful now play timed synthetic cues rather than

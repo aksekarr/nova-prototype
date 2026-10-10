@@ -15,6 +15,11 @@
     .controls { position:fixed; left:20px; bottom:16px; right:20px; max-height:30vh; overflow:auto;
       background:rgba(4,6,12,.87); padding:12px; border:1px solid #252731; border-radius:6px }
     .controls button { font-size:11px }
+    .timing-comparison { border-bottom:1px solid #343641; margin-bottom:10px; padding-bottom:8px }
+    .timing-comparison h2 { font-size:13px; font-weight:500; margin:0 0 8px }
+    .timing-options { display:flex; gap:8px 16px; flex-wrap:wrap; margin-bottom:8px; font-size:12px }
+    .timing-comparison p { max-width:none; margin:5px 0; font-size:11px; color:#aeb6c8 }
+    #timing-status { color:#ddd; min-height:1.4em }
     #metrics { white-space:pre-wrap; max-width:330px; font-size:12px }
     h1 { font-size:16px; font-weight:500; margin:0 0 12px }
     summary { cursor:pointer; padding:6px 0 }
@@ -24,7 +29,7 @@
 <body>
   <canvas id="stage" aria-label="Seni eye and movement preview"></canvas>
   <div class="qa">
-    <h1>Seni · Eye expressions</h1>
+    <h1>Seni · Movement &amp; expressions</h1>
     <label for="eye-style">Eyes</label><select id="eye-style">
       <option value="auto" selected>Conversation mix</option>
       <option value="current">Current eyes</option>
@@ -33,6 +38,29 @@
     </select>
     <p><label><input id="eye-moments" type="checkbox" checked> Eye moments</label> — switch off to hold the resting style.</p>
     <div class="controls">
+      <section class="timing-comparison" aria-label="Mood timing comparison">
+        <h2>Approved expressions · timing &amp; particle flow</h2>
+        <div class="timing-options">
+          <label><input type="radio" name="mood-timing" value="current"> Previous timing</label>
+          <label><input type="radio" name="mood-timing" value="approved" checked> Approved timing</label>
+          <label><input id="timing-speech" type="checkbox"> With cached speech</label>
+          <label><input id="expressive-edges" type="checkbox" checked> Expressive edges</label>
+        </div>
+        <nav aria-label="Timing examples">
+          <button id="timing-thoughtful">Thoughtful</button>
+          <button id="timing-warmly">Warmly</button>
+          <button id="timing-curious">Curious</button>
+          <button id="timing-confidently">Confidently</button>
+          <button id="timing-chuckle">Chuckle</button>
+          <button id="timing-laughing">Laughing</button>
+          <button id="timing-sighs">Sighs</button>
+          <button id="timing-cheerful">Cheerful</button>
+          <button id="timing-excited">Excited</button>
+        </nav>
+        <p id="timing-status">Choose an expression. Switching timing replays your choice.</p>
+        <p>Conversation defaults: moods soften into a moving attitude over 7–9 seconds. Reactions keep their own brief beats. Each expression has a matching edge flow; switch edges off to compare.</p>
+        <p>Silent by default. Cached speech uses one existing recording for every example; the expression is a test cue.</p>
+      </section>
       <nav aria-label="Movement examples">
         <button id="neutral">Neutral</button>
         <button id="listening">Simulate your turn</button>
@@ -49,8 +77,10 @@
           <button id="warmly">Warmly</button>
           <button id="chuckle">Chuckle</button>
           <button id="laughing">Laughing</button>
+          <button id="cheerful">Cheerful</button>
+          <button id="excited">Excited</button>
         </nav>
-        <p>Expression buttons play the same timed cues used in conversation.</p>
+        <p>These buttons use the same approved timing and particle response as conversation.</p>
         <p><label><input id="expressive-moods" type="checkbox" checked> Expressive moods</label> — switch off, then replay to compare the previous performance.</p>
         <p><label><input id="tag-expressions" type="checkbox" checked> Updated tags</label> — switch off and replay a tag to compare.</p>
         <p><label><input id="flow" type="checkbox" checked> Fluid shape</label> — approved neutral/listening movement.</p>

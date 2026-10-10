@@ -198,7 +198,7 @@ test('events still take precedence over moods and an expired mood never returns 
 // Read the actual live timing so a stage-only change cannot silently escape this check.
 const stageSource = await readFile(new URL('../js/stage.js', import.meta.url), 'utf8');
 const liveTiming = vm.runInNewContext('(' + stageSource.match(/  cueTiming: (\{[\s\S]*?\n  \}),/)[1] + ')');
-test('live and missing-key mood defaults hold for two full seconds, then release', () => {
+test('base and missing-key mood timings hold for two full seconds, then release', () => {
   assert.equal(liveTiming.moodAttack, .5);
   assert.equal(liveTiming.moodHold, 2);
   assert.equal(liveTiming.moodRelease, 1);

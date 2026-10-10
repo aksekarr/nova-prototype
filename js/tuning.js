@@ -58,6 +58,7 @@ const HEAD_CONTROLS = [
   ['accent.overshoot', 'Accent bounce', 0, 0.4, 0.01],
   ['moodAmount', 'Mood amount', 0, 2, 0.01],
   ['moodPerformanceAmount', 'Expressive moods (0 = previous)', 0, 1, 0.01],
+  ['moodEdgeAmount', 'Expressive edge flow', 0, 1, 0.01],
   ['browFlashAmount', 'Brow flash amount', 0, 2, 0.01],
   ['microAmount', 'Micro expression amount', 0, 2, 0.01],
   ['headAmount', 'Head amount', 0, 2, 0.01],

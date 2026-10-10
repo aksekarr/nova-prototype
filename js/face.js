@@ -2,6 +2,7 @@ import { createMappedFace } from './facewarp.js';
 import { createFaceMotion } from './facemotion.js';
 import { createFaceHead } from './facehead.js';
 import { createFaceForm } from './face-form.js';
+import { createMoodEdgeFlow } from './mood-edge-flow.js';
 import { createEyeAttitudes, EYE_ATTITUDE_KEYS } from './face-eyes.js';
 import { createSpeechFlow } from './speech-flow.js';
 import { SIGH_GESTURE, sampleSighGesture } from './face-sigh.js';
@@ -49,7 +50,7 @@ export function createFace(shapes, reduce) {
     maxParameterStepKey: '', mapped: mappedFace.diagnostics,
     browFlash: flashes.state, micro: micro.state, eyes: eyes.state, listening: listeningState,
     performance: performance.state,
-    head: head.diagnostics, form: follow.diagnostics.form };
+    head: head.diagnostics, form: follow.diagnostics.form, moodEdges: follow.diagnostics.moodEdges };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
   shapes.headDisplay = follow;
@@ -228,6 +229,7 @@ export function createFace(shapes, reduce) {
     motion.update(clock);
     follow.updateForm(step, automaticEnabled && !speaking && activeReply === null && !automatic.releasing,
       head.diagnostics.attention, acting);
+    follow.updateMoodEdges(step, cues, blend.weights, automaticEnabled);
     follow.setSquashStretch(cur.squashStretch);
     follow.updateGesture(step, cues, automaticEnabled, automatic.gestureWindows,
       beats, automatic.blockingEvent || foreground > .2);
@@ -375,6 +377,8 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     centreX: (minX + maxX) * .5, centreY: (minY + maxY) * .5 }, reduce);
   const speechFlow = createSpeechFlow({ base: BASE, edge: gestureEdge, end: filamentEnd,
     width, height, pivotY });
+  const moodEdges = createMoodEdgeFlow({ base: BASE, edge: gestureEdge, coreEnd, end: filamentEnd,
+    width, height, centreX: (minX + maxX) * .5, centreY: (minY + maxY) * .5, departing }, reduce);
   let speechFlowAmount = reduce ? 0 : 1;
   const BUCKETS = 32, SAMPLES = 64, STEP = 1 / 120;
   const history = new Float64Array(SAMPLES * 5);
@@ -383,7 +387,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
   const settings = new Float64Array([1, 0.5, 0, 2.5]), targets = new Float64Array(settings);
   let initialized = false, cursor = 0, time = 0, sampledAt = 0, nextSample = STEP;
   let displayAmount = 0, lastCoherence = -1, angularSpeed = 0;
-  const diagnostics = { angularSpeed: 0, deviationScale: 0, form: form.state };
+  const diagnostics = { angularSpeed: 0, deviationScale: 0, form: form.state, moodEdges: moodEdges.state };
 
   // This clock advances on audio position, independently of the existing head
   // history. Fixed-time analytic samples retain short transients at any fps.
@@ -747,6 +751,7 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
       }
       localSource = gestured;
     }
+    localSource = moodEdges.apply(localSource, attachment, amount);
     // Reply-start turns peak near 80 degrees/second; keep their path shimmer
     // around 0.4% of face width, with proportionally less on gentle beats.
     const deviation = settings[0] * angularSpeed * width * (0.004 / 80) * amount;
@@ -777,9 +782,10 @@ export function createHeadFollow(shapes, phase = shapes.MOTION.FLOW_PHASE, reduc
     return point;
   }
 
-  return { update, updateGesture, updateForm: form.update, apply, transformPoint, diagnostics,
+  return { update, updateGesture, updateForm: form.update, updateMoodEdges: moodEdges.update, apply, transformPoint, diagnostics,
     setSquashStretch(value) { squashStretch = clamp(value, -1, 1); },
     applyTuning(tuning) {
+    moodEdges.applyTuning(tuning);
     if (!reduce && Number.isFinite(tuning.speechFlowAmount))
       speechFlowAmount = clamp(tuning.speechFlowAmount, 0, 1);
     if (Number.isFinite(tuning.sighAmount)) sighAmount = clamp(tuning.sighAmount, 0, 2);

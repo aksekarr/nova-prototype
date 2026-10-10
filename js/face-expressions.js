@@ -57,10 +57,21 @@ function lerp(a, b, k) {
 }
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
+// Keep the readable opening, then soften into a bounded, moving attitude.
+// Live defaults enable this; the preview can retain the earlier finite beat.
+const MOOD_ATTITUDES = {
+  thinking: { level: .48, settle: 1.2, hold: 3, release: 1.4 },
+  warm: { level: .55, settle: 1.4, hold: 3.2, release: 1.6 },
+  focused: { level: .42, settle: 1, hold: 2.2, release: 1.3 },
+  confident: { level: .58, settle: 1.1, hold: 2.8, release: 1.4 },
+  content: { level: .5, settle: 1.2, hold: 2.6, release: 1.5 },
+  delighted: { level: .4, settle: 1, hold: 2, release: 1.2 }
+};
+
 // Playback-time envelopes are evaluated afresh when alignment changes. Only
 // retirement belongs to an occurrence: corrected timestamps cannot replay it.
 export function createCueExpressions() {
-  let cueMap = {}, timing = {}, laughAmount = 1, moodAmount = 1;
+  let cueMap = {}, timing = {}, laughAmount = 1, moodAmount = 1, sustainMoods = false;
   let replyId = null, lastPosition = 0, lastCues = [], release = null, bridge = null;
   const retired = new Set();
   const knownEnds = new Map();
@@ -104,8 +115,11 @@ export function createCueExpressions() {
       // be blending from the value it had when that later beat began.
       if (previous && position >= previous.until) retired.add(id);
       if (retired.has(id) || (cue.start > position && !previous)) return;
-      moodHistory.set(id, { id, start: cue.start, attack, hold, recovery,
-        until: cue.start + attack + hold + recovery,
+      const attitude = sustainMoods ? MOOD_ATTITUDES[mapping.pose] : null;
+      const releaseStart = attack + hold + (attitude ? attitude.settle + attitude.hold : 0);
+      const moodRecovery = attitude ? attitude.release : recovery;
+      moodHistory.set(id, { id, start: cue.start, attack, hold, attitude, releaseStart,
+        recovery: moodRecovery, until: cue.start + releaseStart + moodRecovery,
         pose: mapping.pose, amount: Math.max(0, mapping.amount) * moodAmount });
     });
     const moods = [...moodHistory.values()].sort((a, b) => a.start - b.start);
@@ -114,6 +128,12 @@ export function createCueExpressions() {
       if (!activeMood) return blank();
       const age = at - activeMood.start;
       const formed = mix(source, destination, phase(age, activeMood.attack));
+      if (activeMood.attitude) {
+        const attitude = activeMood.attitude;
+        const level = lerp(1, attitude.level, phase(age - activeMood.attack - activeMood.hold, attitude.settle));
+        const tail = 1 - phase(age - activeMood.releaseStart, activeMood.recovery);
+        return mix(formed, blank(), 1 - level * tail);
+      }
       return mix(formed, blank(), phase(age - activeMood.attack - activeMood.hold, activeMood.recovery));
     };
     for (const cue of moods) {
@@ -293,6 +313,7 @@ export function createCueExpressions() {
   return { update, applyTuning(tuning) {
     if (tuning.cueMap) cueMap = tuning.cueMap;
     if (tuning.cueTiming) timing = tuning.cueTiming;
+    if (typeof tuning.sustainMoods === 'boolean') sustainMoods = tuning.sustainMoods;
     if (Number.isFinite(tuning.laughAmount)) laughAmount = clamp(tuning.laughAmount, 0, 2);
     if (Number.isFinite(tuning.moodAmount)) moodAmount = clamp(tuning.moodAmount, 0, 2);
   }, reset() {

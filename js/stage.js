@@ -58,6 +58,8 @@ const TUNING = {
   },
   moodAmount: 1,
   moodPerformanceAmount: 1,
+  sustainMoods: true,
+  moodEdgeAmount: 1,
   browFlashAmount: 1,
   microAmount: 1,
   micro: {
