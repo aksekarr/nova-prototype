@@ -1,9 +1,8 @@
 import { createVoiceEffect, stopReferenceClip } from './flanger.js';
-import { MOUTH_CHANNELS, makeMouthPresets, buildShapeTimeline } from './speech-mouth.js';
+import { MOUTH_CHANNELS, makeMouthPresets, buildShapeTimeline, mouthTransitionStart } from './speech-mouth.js';
 
 const ENVELOPE_HZ = 60;
 const RMS_WINDOW_SECONDS = 0.016;
-const SHAPE_LOOKAHEAD_SECONDS = 0.03;
 const STREAM_SAMPLE_RATE = 44100;
 const STREAM_LEAD_SECONDS = 0.1;
 const AUDIO_ACTIVATION_TIMEOUT_MS = 1500;
@@ -627,7 +626,7 @@ export function createVoice({ caption, readout }) {
   };
 
   function update(dt) {
-    let targetShape = IDLE_SHAPE;
+    let targetShape = IDLE_SHAPE, targetDuration = Infinity;
     if (reply) {
       const { position, audible } = streamPosition(reply, ac.currentTime);
       const target = audible ? reply.envelope[Math.floor(position * ENVELOPE_HZ)] || 0 : 0;
@@ -638,9 +637,11 @@ export function createVoice({ caption, readout }) {
         while (reply.shown < reply.words.length && reply.words[reply.shown].start <= position) {
           reply.spans[reply.shown++].classList.add('on');
         }
-        for (const item of reply.shapes) {
-          if (item.start > position + SHAPE_LOOKAHEAD_SECONDS) break;
-          targetShape = item.shape;
+        for (let i = 0; i < reply.shapes.length; i++) {
+          const start = mouthTransitionStart(reply.shapes, i);
+          if (start > position) break;
+          targetShape = reply.shapes[i].shape;
+          targetDuration = mouthTransitionStart(reply.shapes, i + 1) - start;
         }
       }
     } else if (!speech) {
@@ -658,13 +659,21 @@ export function createVoice({ caption, readout }) {
         speech.spans[speech.shown++].classList.add('on');
       }
       while (speech.shapeIndex + 1 < shapes.length &&
-        shapes[speech.shapeIndex + 1].start <= position + SHAPE_LOOKAHEAD_SECONDS) {
+        mouthTransitionStart(shapes, speech.shapeIndex + 1) <= position) {
         speech.shapeIndex++;
       }
-      if (speech.shapeIndex >= 0) targetShape = shapes[speech.shapeIndex].shape;
+      if (speech.shapeIndex >= 0) {
+        targetShape = shapes[speech.shapeIndex].shape;
+        targetDuration = mouthTransitionStart(shapes, speech.shapeIndex + 1)
+          - mouthTransitionStart(shapes, speech.shapeIndex);
+      }
     }
     for (const key of MOUTH_CHANNELS) {
-      const timeConstant = key === 'close' ? 0.012 : 0.045;
+      // Keep slow speech soft, but let a brief articulation reach its shape.
+      // Lip closure attacks quickly; release retains its existing response.
+      const timeConstant = key === 'close'
+        ? (targetShape.close > shape.close ? Math.min(.012, Math.max(.004, targetDuration * .22)) : .012)
+        : Math.min(.045, Math.max(.018, targetDuration * .4));
       shape[key] += (targetShape[key] - shape[key]) * (1 - Math.exp(-dt / timeConstant));
       // Settle exactly on the preset once the remaining difference is invisible.
       if (Math.abs(targetShape[key] - shape[key]) < 0.00001) shape[key] = targetShape[key];

@@ -55,3 +55,47 @@ test('stream gaps release every extra channel and FF uses lower-lip tuck',async(
   assert.equal(voice.currentShape().h,1);assert.equal(voice.currentShape().tuck,0);
   handle.interrupt();
 });
+
+
+test('quick initial and repeated lip closures remain visible without delaying their vowels', async () => {
+  for (const hz of [30, 60, 120]) for (const phase of [0, .25, .5, .75]) {
+    const voice = createVoice({caption:element(),readout:element()});
+    const handle = voice.stream.begin();
+    handle.setText('baby'); handle.addAlignment(align('baby', 35)); handle.addAudio(audio(.5));
+    await tick();
+    const inspect = handle.inspect(), start = inspect.startedAt;
+    const samples = [];
+    for (let time = start + phase / hz; time < start + .16; time += 1 / hz) {
+      context.currentTime = time; voice.update(1 / hz);
+      samples.push({position:time-start, ...voice.currentShape()});
+    }
+    assert.ok(samples.some(s => s.position < .035 && s.close > .9), `initial closure at ${hz} Hz`);
+    assert.ok(samples.some(s => s.position >= .07 && s.position < .105 && s.close > .9), `middle closure at ${hz} Hz`);
+    assert.ok(samples.some(s => s.position >= .035 && s.position < .07 && s.h > 1.2 && s.close < .25), `open vowel at ${hz} Hz`);
+    assert.ok(samples.some(s => s.position >= .105 && s.h < .8 && s.close < .25), `last vowel at ${hz} Hz`);
+    assert.ok(samples.every(s => Object.values(s).every(Number.isFinite)));
+    handle.interrupt(); advance(voice, 2);
+    assert.deepEqual(voice.currentShape(), {w:1,h:1,round:0,close:0,cup:0,square:0,tuck:0,oval:0});
+  }
+});
+
+
+test('a brief M after a changing vowel survives a slow frame without delaying the word boundary', async () => {
+  for (const hz of [30, 60, 120]) for (const phase of [0, .25, .5, .75]) {
+    const voice = createVoice({caption:element(),readout:element()});
+    const handle = voice.stream.begin();
+    handle.setText("I'm a");
+    handle.addAlignment({chars:["I", "'", 'm', ' ', 'a'],
+      char_start_times_ms:[0, 80, 100, 120, 160], char_durations_ms:[80, 20, 20, 40, 80]});
+    handle.addAudio(audio(.5)); await tick();
+    const start = handle.inspect().startedAt, samples = [];
+    assert.equal(handle.inspect().shapes.find(e=>e.name==='REST').start, .12);
+    for (let t = start + phase / hz; t < start + .25; t += 1 / hz) {
+      context.currentTime = t; voice.update(1 / hz);
+      samples.push({position:t-start, ...voice.currentShape()});
+    }
+    assert.ok(samples.some(s=>s.position>=.086 && s.position<.12 && s.close>.9), `brief M at ${hz} Hz, phase ${phase}`);
+    assert.ok(samples.some(s=>s.position>=.16 && s.close<.2 && s.h>1.2));
+    handle.interrupt();
+  }
+});

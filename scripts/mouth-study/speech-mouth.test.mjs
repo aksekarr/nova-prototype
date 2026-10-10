@@ -4,7 +4,7 @@ import test from 'node:test';
 
 // This static-file project has no package.json; load the pure ES module as-is.
 const source = await readFile(new URL('../../js/speech-mouth.js', import.meta.url), 'utf8');
-const { makeMouthPresets, MOUTH_CHANNELS, buildShapeTimeline } =
+const { makeMouthPresets, MOUTH_CHANNELS, buildShapeTimeline, mouthTransitionStart } =
   await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const alignment = (text, step = .1) => ({
   characters: [...text],
@@ -71,7 +71,7 @@ test('supplied timings survive tags and multi-character alignment entries', () =
 });
 
 test('streamed prefixes use the full word and do not double-trigger a split digraph', () => {
-  for (const word of ['touch', 'chew', 'Rome', 'room', 'could']) {
+  for (const word of ['touch', 'chew', 'Rome', 'room', 'could', 'time', 'face', 'people', 'right', 'eight', 'know', "I'm", "we're"]) {
     const complete = timeline(word);
     for (let length = 1; length <= word.length; length++) {
       const events = buildShapeTimeline({ text: word, alignment: alignment(word.slice(0, length)) }, { ended: false });
@@ -99,7 +99,7 @@ test('split and truncated leading tags stay silent until aligned speech arrives'
 });
 
 test('a streamed multi-character vowel never reschedules an already-emitted phase', () => {
-  for (const word of ['roam', 'out']) {
+  for (const word of ['roam', 'out', 'right', 'eight', 'they']) {
     let previous = [];
     for (let length = 1; length <= word.length; length++) {
       const events = buildShapeTimeline({ text: word, alignment: alignment(word.slice(0, length)) }, { ended: false });
@@ -120,7 +120,7 @@ test('fast closures and malformed timestamps never reorder subsequent events', (
   const events = buildShapeTimeline({ alignment: alignment('bat pip', .01) });
   for (let i = 1; i < events.length; i++) {
     assert.ok(events[i].start >= events[i - 1].start);
-    if (events[i - 1].shape.close) assert.ok(events[i].start - events[i - 1].start >= .07 - 1e-10);
+
   }
   const malformed = buildShapeTimeline({ alignment: {
     characters: ['b', 'a', 't', ' ', 'o'],
@@ -138,4 +138,49 @@ test('caller presets are the shape source, including every extra mouth channel',
   presets.UH.h = 1.1;
   const events = buildShapeTimeline({ alignment: alignment('duck') }, { presets });
   assert.strictEqual(events.find(event => event.name === 'UH').shape, presets.UH);
+});
+
+
+test('common long I and long A vowels change shape without changing short vowels', () => {
+  for (const word of ['I', "I'm", 'time', 'like', 'five', 'nice', 'my', 'why', 'try', 'right', 'night', 'pie', 'times', 'liked']) {
+    const n = names(timeline(word));
+    assert.ok(n.some((name, i) => name === 'AA' && n[i + 1] === 'EE'), word);
+  }
+  for (const word of ['face', 'make', 'same', 'day', 'rain', 'they', 'great', 'eight', 'weight', 'faces', 'named']) {
+    const n = names(timeline(word));
+    assert.ok(n.some((name, i) => name === 'E' && n[i + 1] === 'EE'), word);
+    assert.ok(!n.includes('AA'), word);
+  }
+  for (const word of ['give', 'live', 'service', 'office', 'promise', 'machine', 'chip', 'happy']) {
+    const n = names(timeline(word));
+    assert.ok(!n.some((name, i) => name === 'AA' && n[i + 1] === 'EE'), word);
+  }
+  for (const word of ['have', 'said', 'says', 'again']) {
+    const n = names(timeline(word));
+    assert.ok(!n.some((name, i) => name === 'E' && n[i + 1] === 'EE'), word);
+  }
+  assert.deepEqual(names(timeline('face')), ['FF', 'E', 'EE', 'SS']);
+  for (const word of ['she', 'he', 'we', 'me', 'be']) assert.ok(names(timeline(word)).includes('EE'), word);
+  assert.deepEqual(names(timeline('people')), ['PP', 'EE', 'PP', 'DD']);
+  assert.deepEqual(names(timeline('know')), ['DD', 'OH', 'OH_END']);
+  assert.ok(names(timeline('slowly')).includes('OH'));
+  assert.ok(!names(timeline('now')).includes('OH'));
+  assert.ok(names(timeline('height')).includes('AA'));
+});
+
+test('quick closures retain aligned vowel time instead of carrying a fixed hold through the word', () => {
+  const events = buildShapeTimeline({ text: 'baby', alignment: alignment('baby', .035) });
+  assert.deepEqual(events.map(e => e.start), [0, .035, .07, 3 * .035]);
+  assert.deepEqual(names(events), ['PP', 'AA', 'PP', 'EE']);
+  const starts = events.map((_, i) => mouthTransitionStart(events, i));
+  for (let i = 1; i < starts.length; i++) {
+    assert.ok(starts[i] > starts[i - 1]);
+    assert.ok(starts[i] <= events[i].start);
+  }
+  assert.equal(starts[1], .035, 'short closures keep their entire aligned interval');
+  assert.equal(mouthTransitionStart(events, events.length), Infinity);
+  const overlap = buildShapeTimeline({ alignment: {
+    characters: ['bat', 'pip'], character_start_times_seconds: [0, .02], character_end_times_seconds: [.12, .08]
+  }});
+  assert.ok(overlap.every((e, i) => !i || e.start >= overlap[i - 1].start));
 });

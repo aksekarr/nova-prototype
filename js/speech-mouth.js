@@ -31,6 +31,23 @@ const SHORT_OO = /^(?:book|look|cook|took|good|wood|foot|wool|stood|hood)(?:s|ed
 const LONG_O = /^(?:go|no|so|oh|hello|also|both|most|only|old|cold|gold|hold|told|sold)$/;
 const LONG_U = /^(?:to|do|who|two|you|your|shoe|through)(?:s)?$/;
 const WORD = /[a-z]+(?:['’][a-z]+)*/gi;
+// Limit silent-e guesses to simple word stems: service, machine and promise
+// must not acquire a long I just because their final letters look similar.
+const LONG_I_E = /^(?:[bcdfghjklmnpqrstvwxyz]{0,3}|qu)i[^aeiou]e$/;
+const LONG_A_E = /^(?:[bcdfghjklmnpqrstvwxyz]{0,3}|qu)a[^aeiour]e$/;
+const LONG_OW = /^(?:know|low|slow|snow|show|grow|throw|flow|blow|own|bowl)(?:s|n|ing|ed|ly)?$/;
+
+// Protect short articulations instead of shifting the following sounds.
+// Closures can borrow half the preceding interval, leaving a 30 Hz frame;
+// other shapes borrow a quarter, retaining 40 ms when available.
+export function mouthTransitionStart(events, index) {
+  const event = events[index];
+  if (!event) return Infinity;
+  const span = index ? Math.max(0, event.start - events[index - 1].start) : Infinity;
+  const closure = event.shape.close > 0;
+  const advance = Math.min(.03, span * (closure ? .5 : .25), Math.max(0, span - (closure ? .034 : .04)));
+  return Math.max(0, event.start - advance);
+}
 
 function alignedText(alignment, sourceText) {
   const characters = alignment.characters || [];
@@ -67,10 +84,22 @@ function alignedText(alignment, sourceText) {
 
 function wordShapes(word) {
   const result = [];
+  const stem = word.replace(/(?:['’]s|[sd])$/, '');
+  const longI = LONG_I_E.test(stem) && !/^(?:give|live)$/.test(stem);
+  const longA = LONG_A_E.test(stem) && stem !== 'have';
   for (let i = 0; i < word.length;) {
     const char = word[i], pair = word.slice(i, i + 2);
     let count = 1, names;
-    if (/^(ch|sh)$/.test(pair)) { count = 2; names = ['CH']; }
+    if (i === 0 && /^(?:kn|wr)/.test(word)) names = [];
+    else if (word.startsWith('people') && pair === 'eo') { count = 2; names = ['EE']; }
+    else if (word.slice(i, i + 4) === 'eigh') {
+      count = 4; names = word === 'height' ? ['AA', 'EE'] : ['E', 'EE'];
+    } else if (word.slice(i, i + 3) === 'igh') { count = 3; names = ['AA', 'EE']; }
+    else if (pair === 'ie' && /^(?:pie|tie|lie|die)$/.test(word)) { count = 2; names = ['AA', 'EE']; }
+    else if (pair === 'ow') {
+      count = 2; names = LONG_OW.test(word) ? ['OH', 'OH_END'] : ['AA', 'OU'];
+    } else if (pair === 'ey' && word === 'they') { count = 2; names = ['E', 'EE']; }
+    else if (/^(ch|sh)$/.test(pair)) { count = 2; names = ['CH']; }
     else if (pair === 'ph') { count = 2; names = ['FF']; }
     else if (/^(th|ck|ng)$/.test(pair)) { count = 2; names = ['DD']; }
     else if (pair === 'gh') {
@@ -84,12 +113,18 @@ function wordShapes(word) {
     } else if (pair === 'oa' || pair === 'oe') {
       count = 2; names = LONG_U.test(word) ? ['OU'] : ['OH', 'OH_END'];
     } else if (pair === 'ew' || pair === 'ue') { count = 2; names = ['OU']; }
-    else if (pair === 'ee' || pair === 'ea') { count = 2; names = ['EE']; }
-    else if (pair === 'ai' || pair === 'ay') { count = 2; names = ['E']; }
+    else if (pair === 'ee' || pair === 'ea') { count = 2; names = word === 'great' ? ['E', 'EE'] : ['EE']; }
+    else if (pair === 'ai' || pair === 'ay') {
+      count = 2; names = /^(?:said|says|again)$/.test(word) ? ['E'] : ['E', 'EE'];
+    } else if (char === 'i' && (longI || word === 'i' || /^i['’]/.test(word))) names = ['AA', 'EE'];
+    else if (char === 'y' && (/^[bcdfghjklmnpqrstvwxyz]{1,3}y$/.test(word) || word === 'reply')) names = ['AA', 'EE'];
+    else if (char === 'a' && longA) names = ['E', 'EE'];
+    else if (char === 'e' && /^(?:she|he|me|we|be)$/.test(word)) names = ['EE'];
+    else if (char === 'c' && /[eiy]/.test(word[i + 1] || '')) names = ['SS'];
     else if (char === 'o') {
       names = LONG_U.test(word) ? ['OU'] : !SHORT_O.test(word) &&
         (LONG_O.test(word) || /o[^aeiou]e$/.test(word)) ? ['OH', 'OH_END'] : ['UH'];
-    } else if (char === 'e' && i === word.length - 1 && word.length > 3) names = [];
+    } else if (char === 'e' && word.length > 3 && (i === word.length - 1 || ((longI || longA) && i === stem.length - 1))) names = [];
     else names = [{ a: 'AA', u: 'UH', e: 'E', i: 'EE', y: 'EE' }[char] || CONSONANTS[char]].filter(Boolean);
     if (names.length) result.push({ index: i, length: count, names });
     i += count;
@@ -109,12 +144,12 @@ export function buildShapeTimeline({ alignment = {}, text = '' }, { presets = PR
     if (timeline.at(-1)?.name !== name) timeline.push({ start, name, shape: presets[name] });
   };
   const gaps = end => {
-    for (; cursor < end; cursor++) if (/[\s\p{P}]/u.test(visible.text[cursor])) push(visible.times[cursor], 'REST');
+    for (; cursor < end; cursor++) if (/[\s\p{P}]/u.test(visible.text[cursor]) && !/['’]/.test(visible.text[cursor])) push(visible.times[cursor], 'REST');
   };
   for (const match of visible.text.matchAll(WORD)) {
     gaps(match.index);
     const alignedWord = match[0].toLowerCase();
-    const partial = !ended && match.index + match[0].length === visible.text.length;
+    const partial = !ended && /^['’]?$/.test(visible.text.slice(match.index + match[0].length));
     const found = sourceWords.findIndex((word, i) => i >= nextWord &&
       (word === alignedWord || (partial && word.startsWith(alignedWord))));
     const word = found < 0 ? alignedWord : sourceWords[found];
@@ -134,11 +169,10 @@ export function buildShapeTimeline({ alignment = {}, text = '' }, { presets = PR
     cursor = match.index + match[0].length;
   }
   gaps(visible.text.length);
-  // A closure lasts at least 70 ms. Carry the delay forward so short adjacent
-  // characters and rests cannot put subsequent events back before the closure.
+  // Malformed overlapping alignment entries still cannot reverse the clock.
+  // Normal audio timings pass through unchanged, including short closures.
   for (let i = 1; i < timeline.length; i++) {
-    const previous = timeline[i - 1];
-    timeline[i].start = Math.max(timeline[i].start, previous.start + (previous.shape.close ? .07 : 0));
+    timeline[i].start = Math.max(timeline[i].start, timeline[i - 1].start);
   }
   return timeline;
 }

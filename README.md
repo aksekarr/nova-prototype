@@ -175,3 +175,9 @@ the approved particle layouts. Keep that order intact during future cleanup.
 ## Voice
 
 ElevenLabs. Pre-generated lines are made with `scripts/make_voice.py` (dry run by default; generating costs credits and is run only by the owner). The live voice comes from an ElevenLabs agent configured in the ElevenLabs dashboard.
+
+Speech-mouth articulation uses the existing eight-channel vocabulary with bounded
+English vowel rules and duration-aware transitions. Short lip closures preserve
+their audio alignment instead of delaying following sounds. Mouth geometry and
+opening strength are unchanged. See `docs/mouth-articulation-report.txt` for scope,
+comparison evidence and the outstanding visual review.
