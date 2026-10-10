@@ -2,7 +2,7 @@
 // position owns phase; intrinsic paths, lifetimes and colours stay with motion.
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
-const names = ['thinking', 'warm', 'focused', 'confident', 'content', 'delighted', 'laugh', 'sigh'];
+const names = ['thinking', 'warm', 'focused', 'confident', 'concern', 'content', 'delighted', 'laugh', 'sigh'];
 const frequencies = [1.1, 1.5, 1.7, .8, 2.8, 1.3];
 const stride = 15;
 
@@ -41,7 +41,8 @@ export function createMoodEdgeFlow({ base, edge, coreEnd, end, width, height,
     // An underrun holds both shape and phase. Reply replacement inherits the
     // in-flight wave rather than restarting it or passing through neutral.
     if (cues?.state === 'gap') return state;
-    const frequency = 10, decay = Math.exp(-frequency * step);
+    // The edge is the last layer to arrive and finish; its spatial waves stay unchanged.
+    const frequency = 5.5, decay = Math.exp(-frequency * step);
     active = false;
     for (const name of names) {
       const value = Number.isFinite(weights?.[name]) ? clamp(weights[name], 0, 1) : 0;
@@ -91,16 +92,17 @@ export function createMoodEdgeFlow({ base, edge, coreEnd, end, width, height,
       const warmth = state.warm * (.35 + .65 * (.5 + .5 * ripple));
       const focus = state.focused * (.66 + .34 * (.5 + .5 * stream));
       const confidence = state.confident * (.8 + .2 * lift);
+      const concern = state.concern * (.65 + .35 * (.5 + .5 * wash));
       const content = state.content * (.25 + .25 * (.5 + .5 * ripple));
       const delight = state.delighted * (.55 + .45 * (.5 + .5 * bounce));
       const sigh = state.sigh * (.65 + .35 * (.5 + .5 * wash));
       // Focus converges upward; confidence rises steadily. Laughter is a
       // buoyant side ripple, with chuckle strength owned by its existing cue.
       const dx = width * .07 * weight * (gather * (-.35 * x - .8 * y * curl) + warmth * x
-        - focus * .8 * x + confidence * .25 * x + content * x + delight * 1.05 * x
+        - focus * .8 * x + confidence * .55 * x - concern * .7 * x + content * x + delight * 1.05 * x
         + state.laugh * x * (.42 + .22 * bounce) + sigh * .3 * x);
       const dy = height * .065 * weight * (gather * (-.3 * y + .65 * x * curl) + warmth * y
-        + focus * (.5 + .35 * stream - .25 * y) + confidence * (.75 + .25 * y)
+        + focus * (.5 + .35 * stream - .25 * y) + confidence * (.9 + .2 * y) - concern * (.18 + .3 * y)
         + content * (.7 * y + .2) + delight * (.8 * y + .6)
         + state.laugh * (.55 * bounce + .25 * y) - sigh * (.9 + .25 * (.5 + .5 * wash)));
       output[j] += dx; output[j + 1] += dy;

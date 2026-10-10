@@ -2,7 +2,7 @@
 
 **Seni** (placeholder name) is the live voice assistant for Nova's normal mode: a realistic voice with the particle face. She is not Syra (see `CHARACTER.md`, parked). Nothing from Syra's character carries over.
 
-This file is the source for her ElevenLabs system prompt. The current published revision is v6 below; earlier versions remain as comparison baselines. Assume anyone can read it, because anyone can extract a live agent's prompt.
+This file is the source for her ElevenLabs system prompt. The current published revision is v7 below; earlier versions remain as comparison baselines. Assume anyone can read it, because anyone can extract a live agent's prompt.
 
 ## Brief (Avi, 8 Oct 2026)
 
@@ -17,10 +17,10 @@ This file is the source for her ElevenLabs system prompt. The current published 
 - **TTS model:** V4 Turbo, expressive mode on
 - **Stability** around 50% (lower = more expressive), **similarity** at the default, **speed** 1.0
 - **Output format:** PCM 44100 Hz. Nova's lip sync depends on it.
-- **Suggested audio tags:** Chuckles, Sighs, Confidently, Laughing, Curious, Thoughtful, Warmly
+- **Suggested audio tags:** Chuckles, Sighs, Confidently, Laughing, Curious, Thoughtful, Warmly, Concerned
 - **LLM:** OpenAI GPT-4.1 Mini, no reasoning step (published 10 Oct 2026; Avi approved its sound and improved timing). Previous trials: Qwen3.5-397B-A17B and GPT-6.1 Sol with low reasoning.
 - **Temperature:** 0.5 (published and verified 10 Oct 2026).
-- Default personality off; max conversation duration 120 s
+- Default personality off; max conversation duration 300 s (five minutes)
 - The agent ID never goes in this repo.
 
 ## Audio tag descriptions (9 Oct 2026 baseline)
@@ -400,6 +400,34 @@ in v5 and v6 above. Continue comparing conversational nuance, continuity,
 grounded delivery, self-introduction variation and pauses using the same scenarios. Both the
 previous Qwen3.5-397B-A17B baseline and Sol trial remain available through
 ElevenLabs version history and the model picker.
+
+## Concerned expression addition (v7, published 10 Oct 2026)
+
+The approved visual differentiation pass adds Concerned as the eighth suggested
+audio tag and connects both `[Concerned]` and the defensive `[concern]` alias to
+the local concern performance. The live system prompt differs from v6 only in
+the mood-selection sentence below; the rest of v6 remains unchanged. The prompt
+editor matched the intended text, and the publication review contained only
+this prompt addition and the new suggested tag. Publication completed with
+Publish disabled. Model, voice, greeting and other settings were preserved.
+The conversation duration had already been increased to 300 seconds for the
+previous captured session.
+
+Replacement mood-selection sentence:
+
+```text
+Audio tags guide your voice and animate your particle form. Choose the expressive intent before writing the reply. When the answer is focused, reflective, assured, concerned or gentle, start it with the corresponding tag, before the first spoken word. Use [Curious] for focused interest even in a statement; [Thoughtful] for weighing a question or offering a tentative theory; [Confidently] for considered conviction; [Concerned] for gentle concern when something is worrying or troubling; [Warmly] for personal warmth or reassurance. Plain acknowledgements and neutral information can remain untagged.
+```
+
+Concerned tag description (178 characters; dashboard maximum 200):
+
+```text
+Gentle concern when someone shares worry, hurt or something troubling. Convey attentive care without alarm or pity. Start with [Concerned] before the first word; never append it.
+```
+
+Tag delivery still depends on the agent choosing it in context. Local checks
+cover its mapping, playback envelope, visible form and filament response; the
+cached-speech preview injects the tag and is not a fresh provider-delivery test.
 
 ## Notes
 

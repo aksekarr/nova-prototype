@@ -38,18 +38,18 @@ export const EXPR = {
     smile: -0.1, gazeX: -0.5, headRoll: 1.5, headPitch: -1 }),
   thinking: completePose({ browKnit: 0.8, browAngle: 0, browL: -0.35, browR: -0.35,
     upperLid: 0.4, lowerLid: 0.35, mouthPress: 0.5, smile: -0.05, gazeY: -0.15, headPitch: -2 }),
-  focused: completePose({ browKnit: 0.85, browL: -0.4, browR: -0.4,
-    upperLid: 0.3, lowerLid: 0.3, headPitch: -0.8 }),
-  confident: completePose({ upperLid: 0.18, lowerLid: 0.15, browL: -0.06, browR: -0.06,
-    smile: 0.18, headPitch: 0.6 }),
+  focused: completePose({ browKnit: 0.25, browL: 0.34, browR: 0.22,
+    upperLid: -0.24, lowerLid: 0.2, smile: 0.08, headPitch: 0.8 }),
+  confident: completePose({ upperLid: -0.12, lowerLid: 0.24, browL: 0.12, browR: 0.04,
+    browKnit: -0.15, smile: 0.32, headPitch: 1.5 }),
   warm: completePose({ upperLid: 0.2, lowerLid: 0.22, browL: 0.08, browR: 0.08,
     browAngle: -0.12, smile: 0.24, headRoll: 0.5, headPitch: -0.5 }),
   sigh: completePose({ upperLid: 0.4, lowerLid: 0.12, browL: -0.1, browR: -0.1,
     browAngle: 0.08, smile: 0.08, headPitch: -0.35 }),
   surprised: completePose({ upperLid: -1, browL: 0.8, browR: 0.8, browAngle: -0.2,
     mouthOpen: 0.35, mouthRound: 0.6, squashStretch: 0.85, headPitch: 2 }),
-  concern: completePose({ browAngle: -0.7, browKnit: 0.2, browL: 0.15, browR: 0.15,
-    upperLid: 0.3, lowerLid: 0.1, smile: -0.1, headRoll: 1.5, headPitch: -1 })
+  concern: completePose({ browAngle: -0.85, browKnit: 0.2, browL: 0.24, browR: 0.24,
+    upperLid: 0.12, lowerLid: 0.18, smile: -0.12, headPitch: -1.4 })
 };
 
 function lerp(a, b, k) {
@@ -62,8 +62,9 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const MOOD_ATTITUDES = {
   thinking: { level: .48, settle: 1.2, hold: 3, release: 1.4 },
   warm: { level: .55, settle: 1.4, hold: 3.2, release: 1.6 },
-  focused: { level: .42, settle: 1, hold: 2.2, release: 1.3 },
-  confident: { level: .58, settle: 1.1, hold: 2.8, release: 1.4 },
+  focused: { level: .56, settle: 1, hold: 2.2, release: 1.3 },
+  confident: { level: .7, settle: 1.1, hold: 2.8, release: 1.4 },
+  concern: { level: .62, settle: 1.2, hold: 3, release: 1.5 },
   content: { level: .5, settle: 1.2, hold: 2.6, release: 1.5 },
   delighted: { level: .4, settle: 1, hold: 2, release: 1.2 }
 };
@@ -334,10 +335,26 @@ export function createCueExpressions() {
 const MOOD_PERFORMANCES = {
   thinking: { roll: 12, pitch: -1, focus: .7, gazeY: -.18,
     width: .055, height: -.025, bend: .045, asymmetry: .045 },
-  focused: { pitch: -.8, focus: 1.2, width: -.17, height: .14 },
-  confident: { pitch: 1.2, focus: .8, width: -.065, height: .14 },
+  focused: { pitch: 1.1, focus: 1.2, width: -.12, height: .18, bend: -.022 },
+  confident: { pitch: 2.6, focus: 1, width: .08, height: .19 },
+  concern: { pitch: -2, focus: .9, width: -.12, height: -.055, bend: .025 },
+  content: { pitch: -.4, focus: .35, width: .06, height: -.025 },
+  delighted: { pitch: 1.5, focus: .45, width: .08, height: .11 },
   warm: { roll: -2.5, pitch: -.3, focus: .55,
     width: .15, height: -.085, bend: -.018, asymmetry: -.015 }
+};
+// A lag of the same cue weight supplies a brief counter-movement on arrival.
+// Preparation follows a rising contribution, with no second occurrence list
+// or cue clock. Retirement has no independent onset left to fire; replacement
+// inherits the visible motion.
+const MOOD_PREPARATIONS = {
+  thinking: { pitch: .65, width: -.045, height: -.015 },
+  warm: { pitch: .4, width: -.04, height: .025 },
+  focused: { pitch: -1.6, width: .17, height: -.26 },
+  confident: { pitch: -3.8, width: -.13, height: -.28 },
+  concern: { pitch: .75, width: .02, height: .025 },
+  content: { pitch: .3, width: -.025 },
+  delighted: { pitch: -1.8, width: -.055, height: -.06 }
 };
 const PERFORMANCE_KEYS = ['roll', 'pitch', 'focus', 'gazeY', 'width', 'height', 'bend', 'asymmetry'];
 export function createMoodPerformance(reduce = false) {
@@ -345,6 +362,8 @@ export function createMoodPerformance(reduce = false) {
   const state = Object.fromEntries(PERFORMANCE_KEYS.map(key => [key, 0]));
   state.priority = 0;
   const velocity = { ...state };
+  const arrivals = Object.fromEntries(Object.keys(MOOD_PERFORMANCES).map(name =>
+    [name, { value: 0, velocity: 0, preparation: 0 }]));
   const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
   return { state, applyTuning(tuning) {
     if (Number.isFinite(tuning.moodPerformanceAmount)) amount = clamp(tuning.moodPerformanceAmount, 0, 1);
@@ -356,11 +375,26 @@ export function createMoodPerformance(reduce = false) {
     // Gap clocks hold the new body/gaze contribution exactly. Natural endings,
     // interruptions and replacement replies inherit the cue controller's fade.
     const step = gap ? 0 : Number.isFinite(dt) ? Math.max(0, dt) : 0;
-    const frequency = 11, decay = Math.exp(-frequency * step);
+    for (const [name, arrival] of Object.entries(arrivals)) {
+      const weight = Number.isFinite(weights[name]) ? Math.max(0, weights[name]) : 0;
+      const target = !reduce && gain ? weight : 0;
+      const frequency = 11, decay = Math.exp(-frequency * step);
+      const offset = arrival.value - target, tangent = arrival.velocity + frequency * offset;
+      if (step > 0) {
+        arrival.value = target + (offset + tangent * step) * decay;
+        arrival.velocity = (arrival.velocity - frequency * tangent * step) * decay;
+        arrival.preparation = clamp((target - arrival.value) * 2, 0, 1) * gain;
+      }
+    }
     for (const key of PERFORMANCE_KEYS) {
+      // Eyes resolve first in the pose spring, then head, then outer form.
+      const frequency = ['width', 'height', 'bend', 'asymmetry'].includes(key) ? 7 : 11;
+      const decay = Math.exp(-frequency * step);
       let target = 0;
       if (!reduce && gain) for (const [name, weight] of Object.entries(weights))
         target += (MOOD_PERFORMANCES[name]?.[key] || 0) * Math.max(0, weight) * gain;
+      if (!reduce && gain) for (const [name, arrival] of Object.entries(arrivals))
+        target += (MOOD_PREPARATIONS[name][key] || 0) * arrival.preparation;
       if (step === 0) continue;
       const previous = state[key], offset = previous - target;
       const tangent = velocity[key] + frequency * offset;

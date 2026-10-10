@@ -4,7 +4,7 @@ import { createFace } from './face.js';
 import { createVoice } from './voice.js';
 import { startStage } from './stage.js';
 
-// This page uses cached audio and synthetic input only. It never opens a mic.
+// Cached audio and synthetic cues only. This page never opens a microphone.
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
   || new URLSearchParams(location.search).has('reduce');
 const maps = await loadFaceMap();
@@ -14,92 +14,76 @@ const face = createFace(shapes, reduce);
 const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
-const timingStatus = document.getElementById('timing-status');
-let timingVersion = 'approved', timingChoice = 'thoughtful', timingWithSpeech = false, expressiveEdges = true;
-let timingPending = false, timingError = '';
-const timingActive = () => mode.startsWith('timing-');
-let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
-let eyeStyle = 'auto', eyeMoments = true, expressiveMoods = true;
-let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
-const tagExamples = { curious: 'curious', thoughtful: 'thoughtful', chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
-  confidently: 'confidently', warmly: 'warmly', cheerful: 'cheerful', excited: 'excited' };
+const status = document.getElementById('timing-status');
+const examples = { confidently: 'confidently', concerned: 'concerned', curious: 'curious',
+  thoughtful: 'thoughtful', warmly: 'warmly', chuckle: 'chuckles', laughing: 'laughing',
+  sighs: 'sighs', cheerful: 'cheerful', excited: 'excited' };
+const sequence = Object.keys(examples);
 const labelFor = name => name[0].toUpperCase() + name.slice(1);
-const expressionTuning = () => ({
-  sustainMoods: !timingActive() || timingVersion === 'approved',
-  moodEdgeAmount: expressiveEdges ? 1 : 0
-});
-function tagTuning() {
-  const cueMap = { ...tuning.cueMap };
-  if (!updatedTags) Object.assign(cueMap, {
-    sigh: { kind: 'sigh', pose: 'concern', amount: .8 },
-    sighs: { kind: 'sigh', pose: 'concern', amount: .8 },
-    confidently: { kind: 'mood', pose: 'delighted', amount: .5 },
-    warm: { kind: 'mood', pose: 'content', amount: 1 },
-    warmly: { kind: 'mood', pose: 'content', amount: 1 }
-  });
-  return { cueMap, sighAmount: updatedTags ? 1 : 0 };
-}
+let mode = 'neutral', choice = 'confidently', began = 0, occurrence = 0;
+let withSpeech = false, pending = false, error = '', sequenceIndex = -1;
+let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0;
+let eyeStyle = 'auto', eyeMoments = true;
 
-function choose(next) {
+function choose(next, inSequence = false) {
+  if (!inSequence) sequenceIndex = -1;
   voice.stop();
   face.setPose('neutral');
   mode = next;
   began = state.clock;
   occurrence++;
-  maxAccent = 0;
-  timingPending = false;
-  timingError = '';
-  face.applyTuning(expressionTuning());
+  maxAccent = 0; pending = false; error = '';
 }
 
-async function playTiming(name = timingChoice) {
-  timingChoice = name;
-  choose(`timing-${name}`);
-  if (!timingWithSpeech) return;
+function nextExample() {
+  if (sequenceIndex < 0) return;
+  if (++sequenceIndex < sequence.length) playExpression(sequence[sequenceIndex], true);
+  else sequenceIndex = -1;
+}
+
+async function playExpression(name = choice, inSequence = false) {
+  choice = name;
+  choose('expression', inSequence);
+  if (!withSpeech) return;
   const request = occurrence;
-  timingPending = true;
+  pending = true;
   try {
     await voice.activate();
     await voice.preload(['lab-slow']);
-    if (!timingActive() || occurrence !== request) return;
-    timingPending = false;
+    if (mode !== 'expression' || occurrence !== request) return;
+    pending = false;
     face.setReplyText(voice.getLabLine('lab-slow').text);
     await voice.speak('lab-slow');
+    if (occurrence === request) nextExample();
   } catch {
     if (occurrence !== request) return;
-    timingPending = false;
-    timingError = 'Cached speech could not play. Switch off “With cached speech” to try silently.';
+    pending = false;
+    sequenceIndex = -1;
+    error = 'Cached speech could not play. Switch off “With cached speech” to try silently.';
   }
 }
 
 startStage({
   shapes, reduce, state, nebulaEnhancement: true,
-  applyFaceTuning(value) {
-    tuning = value;
-    face.applyTuning({ ...value, ...tagTuning(), formAmount: flowing ? 1 : 0,
-      speechFlowAmount: travelling ? 1 : 0, eyeStyle, eyeMoments,
-      moodPerformanceAmount: expressiveMoods ? 1 : 0,
-      ...expressionTuning() });
-  },
+  applyFaceTuning(value) { face.applyTuning({ ...value, eyeStyle, eyeMoments }); },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
-    const age = clock - began, testingTiming = timingActive();
-    const speech = mode === 'speech' || (testingTiming && timingWithSpeech);
+    const age = clock - began, expression = mode === 'expression';
+    const speech = mode === 'speech' || (expression && withSpeech);
     const played = speech ? voice.currentCues() : null;
-    const tag = tagExamples[testingTiming ? timingChoice : mode];
-    const synthetic = [{ id: 'preview-tag', type: 'tag', name: tag, start: 0, end: .5 }];
-    // Both timing versions use one recording and the real audio clock/mouth.
-    // Replace its delivery tags with the selected test cue; the audio is unchanged.
-    const cues = testingTiming && timingWithSpeech ? played && {
+    const synthetic = [{ id: 'preview-tag', type: 'tag', name: examples[choice], start: 0, end: .5 }];
+    // Speech always uses the real playback clock and mouth. Only the selected
+    // delivery tag is substituted; no recording is generated or modified.
+    const cues = expression ? withSpeech ? played && {
       ...played, cues: [...synthetic, ...played.cues.filter(cue => cue.type !== 'tag')]
-    } : tag && age < 10 ? {
+    } : age < 12 ? {
       replyId: `preview:${occurrence}`, position: age, state: 'speaking', cues: synthetic
-    } : played;
+    } : null : played;
     const listening = mode === 'listening';
-    const input = listening && age < 9 ? .18 : 0;
     state.speaking = speech && Boolean(played);
     face.update(dt, clock, cues, speech ? voice.currentEnvelope() : 0,
-      voice.currentShape(), state.speaking, voice.lastReplyEnd(), listening, null, input);
+      voice.currentShape(), state.speaking, voice.lastReplyEnd(), listening, null,
+      listening && age < 9 ? .18 : 0);
     frames++;
     maxAccent = Math.max(maxAccent, Math.abs(shapes.headDisplay.diagnostics.accent.value));
     for (const value of Object.values(face.diagnostics.rendered)) {
@@ -107,82 +91,50 @@ startStage({
     }
     if (clock - metricsAt > .2) {
       metricsAt = clock;
-      if (testingTiming) {
-        const label = `${labelFor(timingChoice)} · ${timingVersion === 'approved' ? 'Approved timing' : 'Previous timing'}`;
-        const position = timingWithSpeech ? played?.position : Math.min(age, 10);
-        timingStatus.textContent = timingError || `${label} · ${timingPending ? 'Loading speech…'
-          : position === undefined || (!timingWithSpeech && age >= 10) ? 'Finished — replay or switch timing'
-          : `${timingWithSpeech ? 'Cached speech' : 'Silent'} · ${position.toFixed(1)} s`}`;
-      } else timingStatus.textContent = 'Choose an expression. Switching timing replays your choice.';
-      metrics.textContent = JSON.stringify({ mode, frames, nonfinite, reduced: reduce,
-        timingVersion: testingTiming ? timingVersion : null, cues: face.diagnostics.cues,
-        accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
-        head: face.diagnostics.head, form: face.diagnostics.form,
-        eyes: face.diagnostics.eyes,
-        performance: face.diagnostics.performance, moodEdges: face.diagnostics.moodEdges,
+      const position = withSpeech ? played?.position : age;
+      status.textContent = error || (expression ? `${labelFor(choice)}${sequenceIndex >= 0
+        ? ` · ${sequenceIndex + 1} / ${sequence.length}` : ''} · ${pending ? 'Loading speech…'
+        : position === undefined || (!withSpeech && age >= 12) ? 'Finished — replay or choose another'
+        : `${withSpeech ? 'Cached speech' : 'Silent'} · ${position.toFixed(1)} s`}`
+        : 'Choose an expression or Watch all.');
+      metrics.textContent = JSON.stringify({ mode, choice, frames, nonfinite, reduced: reduce,
+        cues: face.diagnostics.cues, accentStarts: shapes.headDisplay.diagnostics.accent.starts,
+        maxAccent, head: face.diagnostics.head, form: face.diagnostics.form,
+        eyes: face.diagnostics.eyes, performance: face.diagnostics.performance,
+        moodEdges: face.diagnostics.moodEdges,
         speechFlow: shapes.headDisplay.diagnostics.accent.flow,
         gesture: { kind: shapes.headDisplay.diagnostics.gesture.kind,
           value: shapes.headDisplay.diagnostics.gesture.value,
           starts: shapes.headDisplay.diagnostics.gesture.starts },
-        expression: { browL: face.diagnostics.expression.browL,
-          browKnit: face.diagnostics.expression.browKnit,
-          mouthOpen: face.diagnostics.expression.mouthOpen }
+        expression: face.diagnostics.expression
       }, null, 2);
     }
+    if (expression && !withSpeech && age >= 12) nextExample();
   }
 });
 
-for (const name of ['neutral', 'listening', ...Object.keys(tagExamples)]) {
-  document.getElementById(name).onclick = () => choose(name);
-}
+for (const name of ['neutral', 'listening']) document.getElementById(name).onclick = () => choose(name);
 document.getElementById('stop').onclick = () => choose('neutral');
-for (const name of Object.keys(tagExamples)) {
-  document.getElementById(`timing-${name}`).onclick = () => playTiming(name);
-}
-for (const input of document.querySelectorAll('input[name="mood-timing"]')) {
-  input.onchange = () => {
-    timingVersion = input.value;
-    if (timingActive()) playTiming();
-  };
-}
-document.getElementById('expressive-edges').onchange = event => {
-  expressiveEdges = event.target.checked;
-  face.applyTuning(expressionTuning());
-};
+for (const name of sequence) document.getElementById(`timing-${name}`).onclick = () => playExpression(name);
+document.getElementById('replay').onclick = () => playExpression();
+document.getElementById('watch-all').onclick = () => { sequenceIndex = 0; playExpression(sequence[0], true); };
 document.getElementById('timing-speech').onchange = event => {
-  timingWithSpeech = event.target.checked;
-  if (timingActive()) playTiming();
+  withSpeech = event.target.checked;
+  if (mode === 'expression') playExpression();
 };
 document.getElementById('speech').onclick = async () => {
   choose('speech');
-  const request = began;
-  await voice.activate();
-  await voice.preload(['intro']);
-  // A later button press cancels this request even while audio is loading.
-  if (mode !== 'speech' || began !== request) return;
-  face.setReplyText(voice.getLabLine('intro').text);
-  await voice.speak('intro');
+  const request = occurrence;
+  try {
+    await voice.activate();
+    await voice.preload(['intro']);
+    if (mode !== 'speech' || occurrence !== request) return;
+    face.setReplyText(voice.getLabLine('intro').text);
+    await voice.speak('intro');
+  } catch {
+    if (occurrence === request) error = 'Cached speech could not play.';
+  }
 };
-document.getElementById('flow').onchange = event => {
-  flowing = event.target.checked;
-  face.applyTuning({ formAmount: flowing ? 1 : 0 });
-};
-
-document.getElementById('speech-flow').onchange = event => {
-  travelling = event.target.checked;
-  face.applyTuning({ speechFlowAmount: travelling ? 1 : 0 });
-};
-
-document.getElementById('tag-expressions').onchange = event => {
-  updatedTags = event.target.checked;
-  face.applyTuning(tagTuning());
-};
-
-document.getElementById('expressive-moods').onchange = event => {
-  expressiveMoods = event.target.checked;
-  face.applyTuning({ moodPerformanceAmount: expressiveMoods ? 1 : 0 });
-};
-
 document.getElementById('eye-style').onchange = event => {
   eyeStyle = event.target.value;
   face.applyTuning({ eyeStyle });

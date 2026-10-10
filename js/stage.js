@@ -84,6 +84,8 @@ const TUNING = {
     sigh: { kind: 'sigh', pose: 'sigh', amount: 0.8 },
     sighs: { kind: 'sigh', pose: 'sigh', amount: 0.8 },
     curious: { kind: 'mood', pose: 'focused', amount: 0.85 },
+    concerned: { kind: 'mood', pose: 'concern', amount: 1 },
+    concern: { kind: 'mood', pose: 'concern', amount: 1 },
     thoughtful: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     thinking: { kind: 'mood', pose: 'thinking', amount: 0.75 },
     cheerful: { kind: 'mood', pose: 'content', amount: 1 },
@@ -140,16 +142,16 @@ const TUNING = {
       headPitch: -2, headRoll: 0, gazeX: 0, gazeY: -0.15
     },
     focused: {
-      smile: 0, browL: -0.4, browR: -0.4, tilt: 0, upperLid: 0.3,
-      lowerLid: 0.3, slant: 0, browKnit: 0.85, browAngle: 0, eyeAsym: 0,
+      smile: 0.08, browL: 0.34, browR: 0.22, tilt: 0, upperLid: -0.24,
+      lowerLid: 0.2, slant: 0, browKnit: 0.25, browAngle: 0, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: -0.8, headRoll: 0, gazeX: 0, gazeY: 0
+      headPitch: 0.8, headRoll: 0, gazeX: 0, gazeY: 0
     },
     confident: {
-      smile: 0.18, browL: -0.06, browR: -0.06, tilt: 0, upperLid: 0.18,
-      lowerLid: 0.15, slant: 0, browKnit: 0, browAngle: 0, eyeAsym: 0,
+      smile: 0.32, browL: 0.12, browR: 0.04, tilt: 0, upperLid: -0.12,
+      lowerLid: 0.24, slant: 0, browKnit: -0.15, browAngle: 0, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: 0.6, headRoll: 0, gazeX: 0, gazeY: 0
+      headPitch: 1.5, headRoll: 0, gazeX: 0, gazeY: 0
     },
     warm: {
       smile: 0.24, browL: 0.08, browR: 0.08, tilt: 0, upperLid: 0.2,
@@ -170,10 +172,10 @@ const TUNING = {
       headPitch: 2, headRoll: 0, gazeX: 0, gazeY: 0
     },
     concern: {
-      smile: -0.1, browL: 0.15, browR: 0.15, tilt: 0, upperLid: 0.3,
-      lowerLid: 0.1, slant: 0, browKnit: 0.2, browAngle: -0.7, eyeAsym: 0,
+      smile: -0.12, browL: 0.24, browR: 0.24, tilt: 0, upperLid: 0.12,
+      lowerLid: 0.18, slant: 0, browKnit: 0.2, browAngle: -0.85, eyeAsym: 0,
       mouthOpen: 0, mouthRound: 0, mouthPress: 0, squashStretch: 0, headYaw: 0,
-      headPitch: -1, headRoll: 1.5, gazeX: 0, gazeY: 0
+      headPitch: -1.4, headRoll: 0, gazeX: 0, gazeY: 0
     },
   },
   dissolveAmount: 1,

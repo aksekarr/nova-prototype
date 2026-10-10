@@ -53,7 +53,7 @@ test('flow protects features, background and source buffers while reaching the f
 test('all expression fields have distinct continuous motion at lower strength', () => {
   const outputs = [];
   for (const weights of [{ thinking: .36 }, { warm: .55 }, { focused: .36 }, { confident: .58 },
-    { content: .5 }, { delighted: .36 }, { laugh: .75 }, { sigh: .8 }]) {
+    { concern: .62 }, { content: .5 }, { delighted: .36 }, { laugh: .75 }, { sigh: .8 }]) {
     const flow = create(), first = advance(flow, weights, 4);
     const next = advance(flow, weights, 1, 60, 4);
     assert.ok(distance(first, next) > .001, JSON.stringify(weights));
@@ -84,15 +84,15 @@ test('gaps freeze strength and phase; reply replacement and disable release with
 });
 
 test('analytic waves agree at 30, 60 and 120 fps and stay bounded throughout transitions', () => {
-  const names = ['thinking', 'warm', 'focused', 'confident', 'content', 'delighted', 'laugh', 'sigh'];
+  const names = ['thinking', 'warm', 'focused', 'confident', 'concern', 'content', 'delighted', 'laugh', 'sigh'];
   const outputs = [];
   for (const fps of [30, 60, 120]) {
     const flow = create();
     flow.update(0, reply(0), {});
     let previous = base.slice();
-    for (let frame = 1; frame <= 16 * fps; frame++) {
+    for (let frame = 1; frame <= 18 * fps; frame++) {
       const time = frame / fps;
-      flow.update(1 / fps, reply(time), { [names[Math.min(7, Math.floor((frame - 1) / (2 * fps)))]]: .75 });
+      flow.update(1 / fps, reply(time), { [names[Math.min(8, Math.floor((frame - 1) / (2 * fps)))]]: .75 });
       const output = flow.apply(base, attachment).slice();
       assert.ok(output.every(Number.isFinite));
       assert.ok(distance(output, base) < .28);
@@ -173,7 +173,7 @@ test('real face driver changes only display positions, preserving mouth, eyes, h
       cueMap: liveMap });
     return { face, shapes };
   }
-  for (const name of ['thoughtful', 'warmly', 'curious', 'confidently', 'chuckles', 'laughing', 'sighs', 'cheerful', 'excited']) {
+  for (const name of ['thoughtful', 'warmly', 'curious', 'confidently', 'concerned', 'chuckles', 'laughing', 'sighs', 'cheerful', 'excited']) {
     const controls = [driver(0), driver(1)];
     let maximumDifference = 0;
     for (let frame = 1; frame <= 300; frame++) {

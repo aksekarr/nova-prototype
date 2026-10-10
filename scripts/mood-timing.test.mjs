@@ -8,6 +8,7 @@ const cueMap = {
   thoughtful: { kind: 'mood', pose: 'thinking', amount: .75 },
   warmly: { kind: 'mood', pose: 'warm', amount: 1 },
   curious: { kind: 'mood', pose: 'focused', amount: .85 },
+  concerned: { kind: 'mood', pose: 'concern', amount: 1 },
   confidently: { kind: 'mood', pose: 'confident', amount: 1 },
   chuckles: { kind: 'chuckle', pose: 'laugh', amount: .75 },
   laughing: { kind: 'laugh', pose: 'laugh', amount: 1 },
@@ -44,8 +45,8 @@ test('sustained moods are selectable; reactions and questions retain their exact
 test('every mapped mood keeps its opening, softens to a lower attitude and retires finitely', () => {
   for (const [name, pose, amount, level, until] of [
     ['thoughtful', 'thinking', .75, .48, 8.1], ['warmly', 'warm', 1, .55, 8.7],
-    ['curious', 'focused', .85, .42, 7], ['confidently', 'confident', 1, .58, 7.8],
-    ['cheerful', 'content', 1, .5, 7.8], ['excited', 'delighted', .9, .4, 6.7]
+    ['curious', 'focused', .85, .56, 7], ['confidently', 'confident', 1, .7, 7.8],
+    ['concerned', 'concern', 1, .62, 8.2], ['cheerful', 'content', 1, .5, 7.8], ['excited', 'delighted', .9, .4, 6.7]
   ]) {
     const baseline = create(false), sustained = create(true), cues = [tag(name)];
     for (let frame = 0; frame <= 150; frame++) {

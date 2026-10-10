@@ -107,16 +107,19 @@ with `?live=1`. Pure pose and expression controllers live in
 
 Avi approved the expressive mood pass and its timing/edge-flow follow-up on
 10 Oct 2026. All are enabled by default in conversation and capture replay.
-**Thoughtful** tilts elastically with an asymmetric gather, **Curious** gathers
-upright and centres its gaze, **Confidently** settles taller, and **Warmly**
-broadens softly. Their existing eye poses remain authoritative. Competing facial
+**Thoughtful** tilts elastically with an asymmetric gather and **Warmly**
+broadens softly. The differentiation follow-up gives **Curious** open, lightly
+asymmetric brows and an upright reach; **Confidently** a clearer chin lift,
+open eyes and tall, slightly broader stance; **Concerned** raised inner brows,
+a gentle forward lean and a softly gathered form. Live and sculpting poses agree. Competing facial
 micro motion reduces during the peak; brow flashes/new ordinary accents yield.
 Authored tilt is smoothed and speed-limited; incidental speech-roll limits and
 random scheduling are unchanged. Speech articulation and particle flow continue.
 
 Moods retain their 0.5-second arrival and 2-second peak, soften into a moving
 attitude, then retire: Thoughtful at 48% of peak until its 8.1-second finish;
-Warmly at 55% / 8.7 s; Curious at 42% / 7 s; Confidently at 58% / 7.8 s.
+Warmly at 55% / 8.7 s; Curious at 56% / 7 s; Confidently at 70% / 7.8 s;
+Concerned at 62% / 8.2 s.
 The existing cheerful/happy and excited aliases receive the same staging
 (50% / 7.8 s and 40% / 6.7 s). Early completion/interruption releases the
 currently visible contribution, gaps hold, and later mood cues take over.
@@ -128,7 +131,8 @@ filaments, using the authoritative expression weights and playback clock:
 - Thoughtful: the approved asymmetric inward curl.
 - Warmly: the approved soft outward ripple.
 - Curious: narrow, converging upward streams.
-- Confidently: a steady, lifting fan.
+- Confidently: a steady, open lifting fan.
+- Concerned: a gentle inward gather, with a quiet downward drift.
 - Chuckle/Laughing: a small playful ripple or fuller buoyant ripple, scaled by
   their existing distinct reaction strengths.
 - Sighs: a downward, outward wash accompanying the exhale.
@@ -140,23 +144,22 @@ eyes/nose/lips, detached core particles, loose background stars, original
 filament paths and colour/lifetime clocks stay intact. Reduced motion omits the
 body/gaze and edge-flow contributions.
 
-`movement.html` exposes every example with **Approved timing** selected.
-**Previous timing** retains the earlier 3.5-second mood beat. Switching timing
-replays the selected example; **Expressive edges** compares the same timing with
-and without its response. Optional cached speech uses one existing `lab-slow`
-recording with an injected test cue; the voice player's audio clock and mouth
-articulation remain authoritative. The tuning panel's **Expressive edge flow**
-slider also supports capture replay comparisons.
+Mood arrivals now include a small preparatory counter-movement, driven by a
+lag of the same authoritative cue weights. The existing facial spring leads
+the head (11), outer form (7), then filaments (5.5); these are critically damped
+spring frequencies. There is no second cue timeline, random stream or timer
+that can independently restart an expression. Gaps freeze the added layers;
+interruptions, retirement and replacement preserve their continuous tails.
+Laugh/chuckle/sigh keep their existing dedicated anticipation and geometry.
 
-**Expressive moods** in `movement.html` compares this pass with the previous
-performance. Curious and Thoughtful now play timed synthetic cues rather than
-holding manual poses. The tuning panel's **Expressive moods (0 = previous)**
-control supports the same A/B while replaying captured replies in Speech lab.
-
-The movement preview also has silent **Sighs**, **Confidently**, **Warmly**,
-**Chuckle** and **Laughing** examples. **Updated tags** compares the three revised
-tag expressions with their previous mappings; switch it off and replay a tag.
-These are synthetic alignment cues, not generated audio or a live connection.
+`movement.html` shows the current performances directly. Choose an expression,
+**Replay**, or **Watch all** to see all ten examples in order. **Stop** or any
+individual choice cancels the sequence. Optional **With cached speech** uses one
+existing `lab-slow` recording with the selected synthetic cue; the real audio
+clock and articulation remain authoritative. Silent examples allow twelve
+seconds for arrival, hold and follow-through. The page never opens a microphone
+or generates audio. Desktop controls sit beside the face. The speech lab retains
+body and edge intensity controls for replay inspection.
 
 Conversation now uses **Conversation mix** for the eyes. **Current eyes** stays
 as the original foundation between moments. **Soft and settled** appears briefly
