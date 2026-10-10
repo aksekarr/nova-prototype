@@ -3,7 +3,8 @@ Mouth articulation and timing refinement — 2026-10-10
 Approved starting point: a53f1f8.
 Saved as checkpoint/approved-live-before-mouth-refinement-2026-10-10.
 The approved state was already committed and clean; no empty commit was needed.
-This refinement is prepared for visual comparison, not yet approved by Avi.
+Refinement code: 71f5632. Avi approved the mouth refinement on 2026-10-10.
+Approved checkpoint: checkpoint/approved-mouth-articulation-2026-10-10.
 
 Production scope: js/speech-mouth.js and js/voice.js only.
 Existing eight-channel shape presets, opening strength and mouth geometry remain
@@ -23,7 +24,8 @@ Timing: remove the fixed 70 ms lip-closure hold that carried delays through late
 sounds. Keep valid supplied timestamps. Anticipation takes at most 30 ms: closures
 can borrow half the preceding interval while leaving 34 ms when available, so a
 brief M after a changing vowel remains visible at 30 Hz. Other shapes borrow a
-quarter, retaining 40 ms when available. No following target is pushed later. Shape smoothing responds to target duration
+quarter, retaining 40 ms when available. No following target is pushed later.
+Shape smoothing responds to target duration
 (18–45 ms), with fast closure attack (4–12 ms) and the existing 12 ms release.
 The original audio envelope attack/release, neutral return, gaps and interruption
 handling remain intact. Already-emitted streaming phases retain their start times.
@@ -39,7 +41,8 @@ four existing cached recordings decoded locally: intro, lab-press, lab-wide and
 lab-fast. Cached and streamed playback at 30/60/120 Hz: 48 runs, 22,744 frames.
 All eight channels finite and every run returns exactly to neutral. Cached audio
 envelopes and expression cues are identical before/after. Streaming target
-sequences/timestamps agree with their cached equivalents. Displayed frames overlapping all 15 aligned lip-closure intervals across the
+sequences/timestamps agree with their cached equivalents. Displayed frames
+overlapping all 15 aligned lip-closure intervals across the
 four clips exceed 85% closure at 30/60/120 Hz in both cached and streamed refined
 playback. Old fixed-hold delays reach 50 ms (intro), 30 ms (lab-press) and 46 ms
 (lab-fast); refined target timestamps have zero added delay. Web Audio clocks and
@@ -47,11 +50,10 @@ the output effect are stubbed for this numerical check; this is not a browser
 performance benchmark or proof of artistic improvement.
 Numeric results: docs/mouth-articulation-validation.json.
 
-A temporary loopback-only before/after comparison uses identical cached speech
-and the current approved face. No provider or microphone is loaded. Compare the
-introduction, lip-closure and vowel recordings with sound on at normal distance.
-Final visual preference remains Avi's decision; do not mark this pass approved
-without that review.
+Visual review used a temporary loopback-only before/after comparison with
+identical cached speech and the approved face, without a provider or microphone.
+Avi approved the result and requested that the completed work be committed
+and pushed on 2026-10-10.
 
 PASS: browser playback through the production face renderer. Approved/refined
 lab-press cached comparison and refined lab-fast simulated streaming completed:
@@ -59,4 +61,4 @@ lab-press cached comparison and refined lab-fast simulated streaming completed:
 warnings. The streamed run delivered 15 audio chunks with zero underruns and
 zero sample seams; cached/streamed shapes match, timing difference below 1e-9 ms.
 Browser controls recovered after an initial tooling timeout. Rendered output
-spot-checked; final artistic preference remains unapproved pending Avi's review.
+was spot-checked, and Avi subsequently approved the visual result.

@@ -180,4 +180,4 @@ Speech-mouth articulation uses the existing eight-channel vocabulary with bounde
 English vowel rules and duration-aware transitions. Short lip closures preserve
 their audio alignment instead of delaying following sounds. Mouth geometry and
 opening strength are unchanged. See `docs/mouth-articulation-report.txt` for scope,
-comparison evidence and the outstanding visual review.
+comparison evidence and approval.

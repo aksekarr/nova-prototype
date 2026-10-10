@@ -2,7 +2,7 @@
   "checkpoint": "checkpoint/approved-live-before-mouth-refinement-2026-10-10",
   "decodedCachedAudio": true,
   "audioEffectStubbed": true,
-  "browserVisualReview": "Browser playback and rendered output spot-checked; final preference awaiting Avi.",
+  "browserVisualReview": "Browser playback and rendered output spot-checked; Avi approved the visual result on 2026-10-10.",
   "runs": [
     {
       "clip": "intro",
@@ -733,5 +733,7 @@
       }
     ]
   },
-  "browserConsoleWarningsAndErrors": []
+  "browserConsoleWarningsAndErrors": [],
+  "approvedCheckpoint": "checkpoint/approved-mouth-articulation-2026-10-10",
+  "articulationCommit": "71f5632"
 }
