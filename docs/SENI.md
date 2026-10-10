@@ -429,6 +429,65 @@ Tag delivery still depends on the agent choosing it in context. Local checks
 cover its mapping, playback envelope, visible form and filament response; the
 cached-speech preview injects the tag and is not a fresh provider-delivery test.
 
+## Cheerful and Excited completion (v8, published 10 Oct 2026)
+
+Cheerful and Excited are now the ninth and tenth published suggested audio tags.
+Cheerful covers light, upbeat pleasure or satisfaction; Excited covers stronger
+anticipation or an exciting discovery. Warmly retains personal warmth and
+reassurance, and Chuckles/Laughing retain audible amusement. Both new tag
+descriptions require placement before the first spoken word and prohibit
+appending the tag after its speech.
+
+The v7 prompt was checked against the live editor before editing. Only the
+mood-selection paragraph changed, adding the two intents and their exact tag
+spellings. The publication review showed only that paragraph and the two new
+suggested tags. Publication completed with Publish disabled, and the published
+prompt matched the intended v8 text exactly. Model, Luna voice, voice settings,
+greeting, other tags and the 300-second conversation limit were preserved.
+
+New tag descriptions (dashboard maximum 200 characters):
+
+**Cheerful** (183 characters):
+
+```text
+Bright, upbeat pleasure or satisfaction, such as good news or a small success. Keep it light; use Warmly for reassurance. Start with [Cheerful] before the first word; never append it.
+```
+
+**Excited** (172 characters):
+
+```text
+Heightened energy for anticipation or an exciting discovery. More animated than Cheerful; laughter is separate. Start with [Excited] before the first word; never append it.
+```
+
+All ten approved expression-preview choices now have matching provider tags:
+
+| ElevenLabs tag | Local performance |
+| --- | --- |
+| Confidently | confident |
+| Concerned | concern |
+| Curious | focused |
+| Thoughtful | thinking |
+| Warmly | warm |
+| Chuckles | laugh at chuckle strength |
+| Laughing | laugh at full strength |
+| Sighs | sigh |
+| Cheerful | content |
+| Excited | delighted |
+
+No animation or playback source changes were needed. The existing 58 targeted
+checks passed, covering mood choreography, edge motion, timing, interruptions,
+gaps, expressions and voice reliability. Eight additional synthetic scenarios
+passed through the production stream parser and face driver: each new tag with
+full alignment, spoken-only alignment, no alignment, and reduced motion. Both
+reached the correct peak and quieter hold, then retired; reduced motion omitted
+the additional body and edge movement. Browser checks with the existing cached
+speech reached content at 1.0 and delighted at 0.9, with their matching body and
+edge responses, zero nonfinite values and no warning/error logs.
+
+Provider configuration is published; these local checks do not establish how
+often the agent will choose either tag. Fresh provider delivery remains a check
+for the next live conversation capture.
+
 ## Notes
 
 - First tone test (8 Oct 2026): approved. She improvised a joke about the light particles. Watch that it doesn't become a tic; it echoes an example line, so swap that example out if it does.

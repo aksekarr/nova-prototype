@@ -120,8 +120,10 @@ Moods retain their 0.5-second arrival and 2-second peak, soften into a moving
 attitude, then retire: Thoughtful at 48% of peak until its 8.1-second finish;
 Warmly at 55% / 8.7 s; Curious at 56% / 7 s; Confidently at 70% / 7.8 s;
 Concerned at 62% / 8.2 s.
-The existing cheerful/happy and excited aliases receive the same staging
-(50% / 7.8 s and 40% / 6.7 s). Early completion/interruption releases the
+The cheerful/happy and excited aliases receive the same staging
+(50% / 7.8 s and 40% / 6.7 s). All ten preview expressions now have matching
+published ElevenLabs tags and spoken-expression guidance, including Cheerful
+and Excited (v8). Early completion/interruption releases the
 currently visible contribution, gaps hold, and later mood cues take over.
 Laugh/chuckle/sigh geometry and event timing retain their approved beats.
 
