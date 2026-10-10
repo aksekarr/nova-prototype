@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Seni · Voice comparison</title>
+  <link rel="stylesheet" href="./css/nova.css">
+  <style>
+    * { box-sizing: border-box }
+    body { margin:0; overflow:auto; min-height:100%; height:auto }
+    main { max-width:760px; margin:0 auto; padding:48px 24px }
+    h1 { font-family:var(--display); font-weight:500; font-size:28px; margin:8px 0 16px }
+    p { color:var(--dim); line-height:1.65; font-size:14px }
+    .eyebrow { color:var(--ember); letter-spacing:.22em; font-size:11px }
+    select { display:block; width:100%; padding:12px; margin:10px 0 24px; font:inherit;
+      color:var(--ink); background:#10141e; border:1px solid var(--rule); border-radius:4px }
+    .options { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    .options button { min-height:126px; text-align:left; text-transform:none; letter-spacing:0;
+      padding:18px; border-radius:6px; font-size:17px; line-height:1.4 }
+    button small { display:block; color:var(--dim); font:12px/1.6 var(--mono); margin-top:8px }
+    .transport { display:flex; align-items:center; gap:16px; margin:22px 0 }
+    #status { font-size:13px; color:var(--ember); line-height:1.5 }
+    #quote { padding:18px 0; border-top:1px solid var(--rule) }
+    details { color:var(--dim); font-size:12px; margin-top:24px }
+    pre { white-space:pre-wrap; line-height:1.6; overflow-wrap:anywhere }
+    @media(max-width:540px) { main { padding:24px 18px } .options { grid-template-columns:1fr } .options button { min-height:100px } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">SENI / VOICE</div>
+    <h1>Keep the digital character.</h1>
+    <p>The same digital layer, with less change in the flange. Choose a recording, then tap a sound to compare at a matched level.</p>
+    <label for="clip">Recording</label>
+    <select id="clip">
+      <option value="lab-slow">Warm conversation</option>
+      <option value="lab-moods">Whisper, laughter and expression</option>
+      <option value="intro">Introduction</option>
+      <option value="lab-press">Clear consonants</option>
+      <option value="lab-fast">Quick speech</option>
+    </select>
+    <div class="options" aria-label="Voice comparisons">
+      <button data-preset="digital" aria-pressed="false">1 · Sine + digital<small>Your current full sweep · 43% flange · 4% digital layer</small></button>
+      <button data-preset="fixedHigh" aria-pressed="false">2 · Hold the starting tone<small>Fixed at 11.84 ms · same flange and digital mix</small></button>
+      <button data-preset="fixedLow" aria-pressed="false">3 · Hold slightly below<small>Fixed at 10.5 ms · same flange and digital mix</small></button>
+      <button data-preset="narrow" aria-pressed="false">4 · A little movement<small>10–12 ms sine sweep · selected default</small></button>
+    </div>
+    <div class="transport"><button id="stop">Stop</button><span id="status" role="status">Ready—choose a sound.</span></div>
+    <p id="quote"></p>
+    <details>
+      <summary>Earlier comparisons</summary>
+      <div class="options" aria-label="Earlier voice comparisons">
+        <button data-preset="original" aria-pressed="false">Original triangle<small>43% flange · approved starting point</small></button>
+        <button data-preset="sine" aria-pressed="false">Sine only<small>43% flange · no digital layer</small></button>
+        <button data-preset="balanced" aria-pressed="false">Balanced digital<small>32% flange · 4% digital layer</small></button>
+      </div>
+    </details>
+    <details><summary>Comparison details</summary><pre id="metrics">Levels are measured when a recording loads.</pre></details>
+  </main>
+  <script type="module" src="./js/voice-preview.js"></script>
+</body>
+</html>

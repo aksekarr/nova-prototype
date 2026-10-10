@@ -398,7 +398,7 @@ export function startStage({ shapes, reduce, state, updateFace, onFrame, applyFa
   applyTuning();
   if (new URLSearchParams(window.location.search).get('tune') === '1') {
     import('./tuning.js').then(({ createTuningPanel }) => createTuningPanel(TUNING,
-      (_, key) => key?.startsWith('flanger') ? setFlangerTuning(TUNING) : applyTuning(), speechLab));
+      (_, key) => (key?.startsWith('flanger') || key?.startsWith('ring')) ? setFlangerTuning(TUNING) : applyTuning(), speechLab));
   }
 
   function resize() {

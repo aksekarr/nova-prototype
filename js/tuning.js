@@ -1,4 +1,5 @@
 import { EXPR, POSE_KEYS, POSE_CONTROLS } from './face.js';
+import { VOICE_EFFECT_PRESETS } from './flanger.js';
 
 const CONTROLS = [
   ['definition', 'Definition', 0, 1, 0.01],
@@ -36,11 +37,13 @@ const CONTROLS = [
 ];
 
 const FLANGER_CONTROLS = [
-  ['flangerRate', 'Rate (Hz)', 0.01, 5, 0.001],
+  ['flangerRate', 'Flange rate (Hz)', 0.01, 5, 0.001],
   ['flangerBaseDelay', 'Base delay (ms)', 0.1, 20, 0.01],
   ['flangerDepth', 'Depth (ms)', 0, 20, 0.01],
   ['flangerFeedback', 'Feedback', -0.95, 0.95, 0.01],
-  ['flangerMix', 'Mix', 0, 1, 0.01],
+  ['flangerMix', 'Flange mix', 0, 1, 0.01],
+  ['ringRate', 'Metallic tone (Hz)', 20, 250, 1],
+  ['ringMix', 'Metallic mix', 0, 0.15, 0.005],
 ];
 
 const HEAD_CONTROLS = [
@@ -559,6 +562,39 @@ function createVoiceEffect(tuning, onChange, references) {
   heading.setAttribute('aria-level', '3');
   group.append(heading);
 
+  const inputs = new Map();
+  const presetLabel = document.createElement('label');
+  presetLabel.textContent = 'Voice sound ';
+  const preset = document.createElement('select');
+  preset.setAttribute('aria-label', 'Voice sound');
+  for (const [value, text] of [
+    ['original', 'Original triangle'], ['sine', 'Sine only'],
+    ['digital', 'Sine + digital'], ['balanced', 'Balanced digital'],
+    ['fixedHigh', 'Fixed 11.84 ms'], ['fixedLow', 'Fixed 10.5 ms'],
+    ['narrow', 'Narrow sweep 10–12 ms'], ['custom', 'Custom']
+  ]) {
+    const option = new Option(text, value);
+    option.disabled = value === 'custom';
+    preset.append(option);
+  }
+  preset.value = 'narrow';
+  presetLabel.append(preset);
+  group.append(presetLabel);
+  const changed = key => { preset.value = 'custom'; onChange(key); };
+
+  const sweepLabel = document.createElement('label');
+  sweepLabel.textContent = 'Flange sweep ';
+  const sweep = document.createElement('select');
+  sweep.setAttribute('aria-label', 'Flange sweep');
+  sweep.append(new Option('Triangle', '0'), new Option('Sine', '1'));
+  sweep.value = String(tuning.flangerWaveform);
+  sweep.addEventListener('change', () => {
+    tuning.flangerWaveform = Number(sweep.value);
+    changed('flangerWaveform');
+  });
+  sweepLabel.append(sweep);
+  group.append(sweepLabel);
+
   const toggleLabel = document.createElement('label');
   toggleLabel.className = 'tuning-footer';
   const toggle = document.createElement('input');
@@ -569,7 +605,7 @@ function createVoiceEffect(tuning, onChange, references) {
   toggleText.textContent = 'Flanger on';
   toggle.addEventListener('input', () => {
     tuning.flangerOn = toggle.checked;
-    onChange('flangerOn');
+    changed('flangerOn');
   });
   toggleLabel.append(toggle, toggleText);
   group.append(toggleLabel);
@@ -592,11 +628,25 @@ function createVoiceEffect(tuning, onChange, references) {
     input.addEventListener('input', () => {
       tuning[key] = Number(input.value);
       value.value = input.value;
-      onChange(key);
+      changed(key);
     });
     label.append(name, value, input);
     group.append(label);
+    inputs.set(key, { input, value });
   }
+
+  preset.addEventListener('change', () => {
+    const selected = VOICE_EFFECT_PRESETS[preset.value];
+    if (!selected) return;
+    Object.assign(tuning, selected);
+    toggle.checked = tuning.flangerOn;
+    sweep.value = String(tuning.flangerWaveform);
+    for (const [key, { input, value }] of inputs) {
+      input.value = tuning[key];
+      value.value = input.value;
+    }
+    onChange('flangerWaveform');
+  });
 
   const status = document.createElement('span');
   status.className = 'tuning-status';
@@ -605,7 +655,7 @@ function createVoiceEffect(tuning, onChange, references) {
   const buttons = [
     ['dry', 'Dry reference'],
     ['logic', 'Logic reference'],
-    ['browser', 'Browser flanger'],
+    ['browser', 'Browser voice effects'],
   ].map(([kind, text]) => {
     const row = document.createElement('div');
     row.className = 'tuning-footer';

@@ -1,16 +1,37 @@
-export const FLANGER_DEFAULTS = {
-  flangerOn: true,
-  flangerRate: 0.133,
-  flangerBaseDelay: 6.17,
-  flangerDepth: 5.67,
-  flangerFeedback: 0.39,
-  flangerMix: 0.43
-};
+import { VOICE_EFFECT_PARAMETERS } from './voice-effect-dsp.js';
+
+const original = Object.freeze({
+  flangerOn: true, flangerRate: 0.133, flangerBaseDelay: 6.17,
+  flangerDepth: 5.67, flangerFeedback: 0.39, flangerMix: 0.43,
+  flangerWaveform: 0, ringRate: 75, ringMix: 0
+});
+const digital = Object.freeze({ ...original, flangerWaveform: 1, ringMix: 0.04 });
+export const VOICE_EFFECT_PRESETS = Object.freeze({
+  original,
+  sine: Object.freeze({ ...original, flangerWaveform: 1 }),
+  digital,
+  balanced: Object.freeze({ ...digital, flangerMix: 0.32 }),
+  fixedHigh: Object.freeze({ ...digital, flangerBaseDelay: 11.84, flangerDepth: 0 }),
+  fixedLow: Object.freeze({ ...digital, flangerBaseDelay: 10.5, flangerDepth: 0 }),
+  narrow: Object.freeze({ ...digital, flangerBaseDelay: 11, flangerDepth: 1 })
+});
+// Retain the existing tuning export/API; it now includes the parallel ring layer.
+export const FLANGER_DEFAULTS = { ...VOICE_EFFECT_PRESETS.narrow };
 
 const PARAMS = {
   flangerOn: 'enabled', flangerRate: 'rateHz', flangerBaseDelay: 'baseDelayMs',
-  flangerDepth: 'depthMs', flangerFeedback: 'feedback', flangerMix: 'mix'
+  flangerDepth: 'depthMs', flangerFeedback: 'feedback', flangerMix: 'mix',
+  flangerWaveform: 'sine', ringRate: 'ringHz', ringMix: 'ringMix'
 };
+const limits = new Map(VOICE_EFFECT_PARAMETERS.map(p => [p.name, p]));
+export function voiceEffectParameters(tuning = FLANGER_DEFAULTS) {
+  return Object.fromEntries(Object.entries(PARAMS).map(([key, name]) => {
+    const { minValue, maxValue } = limits.get(name);
+    const candidate = Number(tuning[key] ?? FLANGER_DEFAULTS[key]);
+    const value = Number.isFinite(candidate) ? candidate : Number(FLANGER_DEFAULTS[key]);
+    return [name, Math.max(minValue, Math.min(maxValue, value))];
+  }));
+}
 const modules = new WeakMap();
 let warned = false;
 let settings = { ...FLANGER_DEFAULTS };
@@ -28,22 +49,27 @@ export async function createFlangerNode(context, tuning = FLANGER_DEFAULTS) {
     return new AudioWorkletNode(context, 'nova-flanger', {
       numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
       channelCount: 1, channelCountMode: 'explicit',
-      parameterData: Object.fromEntries(Object.entries(PARAMS).map(([key, name]) => [name, Number(tuning[key])]))
+      parameterData: voiceEffectParameters(tuning)
     });
   } catch (error) {
     if (!warned) {
       warned = true;
-      console.warn('Voice flanger unavailable; using dry audio.', error);
+      console.warn('Voice processing unavailable; using dry audio.', error);
     }
     return null;
   }
 }
 
 export function setFlangerTuning(tuning) {
-  for (const key of Object.keys(PARAMS)) settings[key] = tuning[key];
+  for (const key of Object.keys(PARAMS)) {
+    if (tuning[key] !== undefined) settings[key] = tuning[key];
+  }
   if (!graph?.node) return;
-  for (const [key, name] of Object.entries(PARAMS)) {
-    graph.node.parameters.get(name).setValueAtTime(Number(settings[key]), graph.context.currentTime);
+  for (const [name, value] of Object.entries(voiceEffectParameters(settings))) {
+    const param = graph.node.parameters.get(name);
+    // Smooth live tuning, including waveform/bypass crossfades, to avoid clicks.
+    param.cancelScheduledValues(graph.context.currentTime);
+    param.setTargetAtTime(value, graph.context.currentTime, 0.015);
   }
 }
 

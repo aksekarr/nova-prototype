@@ -181,3 +181,15 @@ English vowel rules and duration-aware transitions. Short lip closures preserve
 their audio alignment instead of delaying following sounds. Mouth geometry and
 opening strength are unchanged. See `docs/mouth-articulation-report.txt` for scope,
 comparison evidence and approval.
+
+Voice effects now offer a sine flange and a quiet, filtered ring-modulated layer.
+Avi selected the narrow 10–12 ms sine sweep as the default on 2026-10-10.
+`voice.html` retains the full Sine + digital sweep alongside fixed delays at
+11.84 ms and 10.5 ms, plus the selected narrow sweep. All four retain 43% flange, 39% feedback and
+4% ring modulation at 75 Hz. Earlier triangle/sine/balanced comparisons remain
+available under Earlier comparisons, using the same existing cached speech.
+Comparison gains match RMS with a common peak ceiling of 0.94; these gains apply only to the preview, not live playback.
+The original preset reproduces the saved processor at `1b32f85` exactly.
+No extra processing block delay is introduced. Mouth analysis and audio clocks
+remain upstream and unchanged. The tuning panel also exposes waveform, ring
+frequency/mix and all seven presets. No new recordings or dependencies are needed.
