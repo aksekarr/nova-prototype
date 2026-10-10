@@ -143,3 +143,6 @@ document.getElementById('eye-moments').onchange = event => {
   eyeMoments = event.target.checked;
   face.applyTuning({ eyeMoments });
 };
+
+// Enable controls only after assets, stage and every handler are ready.
+document.getElementById('preview-controls').disabled = false;

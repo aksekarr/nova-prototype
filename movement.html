@@ -8,6 +8,7 @@
   <script type="importmap">{"imports":{"three":"./js/vendor/three.module.js","three/addons/":"./js/vendor/addons/"}}</script>
   <style>
     .qa { position:fixed; z-index:10; left:20px; top:16px; right:20px; font:13px system-ui; color:#ddd }
+    fieldset.qa { border:0; padding:0; margin:0; min-width:0 }
     .qa p { max-width:380px; line-height:1.4 }
     .qa nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px }
     .qa button, .qa select { padding:8px 10px; font:inherit }
@@ -32,7 +33,7 @@
 </head>
 <body>
   <canvas id="stage" aria-label="Seni eye and movement preview"></canvas>
-  <div class="qa">
+  <fieldset class="qa" id="preview-controls" disabled>
     <h1>Seni · Movement &amp; expressions</h1>
     <label for="eye-style">Eyes</label><select id="eye-style">
       <option value="auto" selected>Conversation mix</option>
@@ -61,7 +62,7 @@
           <button id="timing-cheerful">Cheerful</button>
           <button id="timing-excited">Excited</button>
         </nav>
-        <p id="timing-status" role="status">Choose an expression or Watch all.</p>
+        <p id="timing-status" role="status">Loading expressions…</p>
         <p>Watch the arrival, the quieter hold and the particles settling back. Silent by default; the speech option uses the same existing recording for each expression.</p>
       </section>
       <nav aria-label="Movement examples">
@@ -72,7 +73,7 @@
       </nav>
       <details><summary>Diagnostics</summary><pre id="metrics">Loading…</pre></details>
     </div>
-  </div>
+  </fieldset>
   <script type="module" src="./js/movement-preview.js"></script>
 </body>
 </html>
