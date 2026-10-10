@@ -7,7 +7,7 @@ import { createSpeechFlow } from './speech-flow.js';
 import { SIGH_GESTURE, sampleSighGesture } from './face-sigh.js';
 
 import { POSE_CONTROLS, NEUTRAL_POSE, EXPR,
-  createCueExpressions, createBrowFlashes, createMicroExpressions } from './face-expressions.js';
+  createCueExpressions, createBrowFlashes, createMicroExpressions, createMoodPerformance } from './face-expressions.js';
 // Keep the existing face-module exports available to previews and QA tools.
 export { POSE_CONTROLS, POSE_KEYS, EYE_SHAPE_KEYS, NEUTRAL_POSE, EXPR,
   createCueExpressions, createBrowFlashes, createMicroExpressions } from './face-expressions.js';
@@ -29,6 +29,7 @@ export function createFace(shapes, reduce) {
   const flashes = createBrowFlashes();
   const micro = createMicroExpressions();
   const eyes = createEyeAttitudes(reduce);
+  const performance = createMoodPerformance(reduce);
   let beats = [], phraseEvents = [], headTime = 0;
   let listeningSettings = {}, replyBlend = 0.4;
   let listeningWeight = 0, listeningTransition = null, listeningBridge = null;
@@ -47,6 +48,7 @@ export function createFace(shapes, reduce) {
     pose: null, selectedPose, poseIntensity, maxParameterStep: 0, maxParameterStepDt: 0,
     maxParameterStepKey: '', mapped: mappedFace.diagnostics,
     browFlash: flashes.state, micro: micro.state, eyes: eyes.state, listening: listeningState,
+    performance: performance.state,
     head: head.diagnostics, form: follow.diagnostics.form };
   // Stage applies the local expression deformation and head motion only after
   // intrinsic particle easing; the simulation never receives this display copy.
@@ -89,7 +91,9 @@ export function createFace(shapes, reduce) {
     // runtime use these same critically damped, exact spring integrations.
     const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     const automaticEnabled = autoExpressions && !preview;
-    const flash = flashes.update(step, cues, automatic.blockingEvent, automaticEnabled, beats);
+    const acting = performance.update(step, blend.weights, automaticEnabled, cues?.state === 'gap');
+    const foreground = acting.priority;
+    const flash = flashes.update(step, cues, automatic.blockingEvent || foreground > .2, automaticEnabled, beats);
     // Wait for both the existing cue release and its spring tail. A small
     // normalized settling threshold avoids waiting for exact floating zero.
     const settled = !automatic.releasing && POSE_CONTROLS.every(([key, , low, high]) =>
@@ -121,7 +125,8 @@ export function createFace(shapes, reduce) {
         : listeningWeight ? 'listening' : eligible ? 'settling' : 'off' });
     const listeningPose = eyePoses[listeningSettings.pose] || eyePoses.content;
     const listeningAmount = Number.isFinite(listeningSettings.amount) ? clamp(listeningSettings.amount, 0, 1) : 0.25;
-    const drift = micro.update(step, cues, blend.microSuppression, automaticEnabled, listeningWeight, phraseEvents);
+    const drift = micro.update(step, cues, Math.max(blend.microSuppression, foreground * .94),
+      automaticEnabled, listeningWeight, phraseEvents);
     const frequency = 14, decay = Math.exp(-frequency * step);
     for (const [key, , low, high] of POSE_CONTROLS) {
       let target = 0;
@@ -153,7 +158,7 @@ export function createFace(shapes, reduce) {
     rendered.smile = 0.05 + cur.smile;
     if (bridgeMix === 1) listeningBridge = null;
     const pose = head.update(dt, { speaking, envelope, bias: cur,
-      listening: automaticEnabled && listening, inputVolume });
+      listening: automaticEnabled && listening, inputVolume, performance: acting });
     const eyeAttitude = eyes.update(step, { cues, enabled: automaticEnabled,
       weights: blend.weights, listening: listeningWeight,
       attention: head.diagnostics.attention, phraseEvents });
@@ -222,10 +227,10 @@ export function createFace(shapes, reduce) {
     mappedFace.update(clock, rendered, gaze, blinkV, mouthEnvelope, mouthShape);
     motion.update(clock);
     follow.updateForm(step, automaticEnabled && !speaking && activeReply === null && !automatic.releasing,
-      head.diagnostics.attention);
+      head.diagnostics.attention, acting);
     follow.setSquashStretch(cur.squashStretch);
     follow.updateGesture(step, cues, automaticEnabled, automatic.gestureWindows,
-      beats, automatic.blockingEvent);
+      beats, automatic.blockingEvent || foreground > .2);
     follow.update(dt, pose);
     refreshSelection();
   }
@@ -254,6 +259,7 @@ export function createFace(shapes, reduce) {
     automatic.applyTuning(tuning);
     flashes.applyTuning(tuning);
     micro.applyTuning(tuning);
+    performance.applyTuning(tuning);
     eyes.applyTuning(tuning);
     if (tuning.listening) listeningSettings = tuning.listening;
     if (Number.isFinite(tuning.cueTiming?.replyBlend)) replyBlend = Math.max(0, tuning.cueTiming.replyBlend);

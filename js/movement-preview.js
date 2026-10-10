@@ -15,9 +15,9 @@ const state = { mode: 'face', modeT: -10, clock: 10, speaking: false };
 const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
 const metrics = document.getElementById('metrics');
 let mode = 'neutral', began = 0, tuning, flowing = true, travelling = true, updatedTags = true;
-let eyeStyle = 'auto', eyeMoments = true;
+let eyeStyle = 'auto', eyeMoments = true, expressiveMoods = true;
 let metricsAt = 0, maxAccent = 0, frames = 0, nonfinite = 0, occurrence = 0;
-const tagExamples = { chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
+const tagExamples = { curious: 'curious', thoughtful: 'thoughtful', chuckle: 'chuckles', laughing: 'laughing', sighs: 'sighs',
   confidently: 'confidently', warmly: 'warmly' };
 function tagTuning() {
   const cueMap = { ...tuning.cueMap };
@@ -38,10 +38,6 @@ function choose(next) {
   began = state.clock;
   occurrence++;
   maxAccent = 0;
-  if (next === 'curious' || next === 'thoughtful') {
-    const cue = tuning.cueMap[next];
-    face.setPose(cue.pose, cue.amount);
-  }
 }
 
 startStage({
@@ -49,7 +45,8 @@ startStage({
   applyFaceTuning(value) {
     tuning = value;
     face.applyTuning({ ...value, ...tagTuning(), formAmount: flowing ? 1 : 0,
-      speechFlowAmount: travelling ? 1 : 0, eyeStyle, eyeMoments });
+      speechFlowAmount: travelling ? 1 : 0, eyeStyle, eyeMoments,
+      moodPerformanceAmount: expressiveMoods ? 1 : 0 });
   },
   onFrame(dt) { voice.update(dt); },
   updateFace(dt, clock) {
@@ -75,6 +72,7 @@ startStage({
         accentStarts: shapes.headDisplay.diagnostics.accent.starts, maxAccent,
         head: face.diagnostics.head, form: face.diagnostics.form,
         eyes: face.diagnostics.eyes,
+        performance: face.diagnostics.performance,
         speechFlow: shapes.headDisplay.diagnostics.accent.flow,
         gesture: { kind: shapes.headDisplay.diagnostics.gesture.kind,
           value: shapes.headDisplay.diagnostics.gesture.value,
@@ -87,7 +85,7 @@ startStage({
   }
 });
 
-for (const name of ['neutral', 'curious', 'thoughtful', 'listening', ...Object.keys(tagExamples)]) {
+for (const name of ['neutral', 'listening', ...Object.keys(tagExamples)]) {
   document.getElementById(name).onclick = () => choose(name);
 }
 document.getElementById('stop').onclick = () => choose('neutral');
@@ -114,6 +112,11 @@ document.getElementById('speech-flow').onchange = event => {
 document.getElementById('tag-expressions').onchange = event => {
   updatedTags = event.target.checked;
   face.applyTuning(tagTuning());
+};
+
+document.getElementById('expressive-moods').onchange = event => {
+  expressiveMoods = event.target.checked;
+  face.applyTuning({ moodPerformanceAmount: expressiveMoods ? 1 : 0 });
 };
 
 document.getElementById('eye-style').onchange = event => {

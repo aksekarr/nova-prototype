@@ -80,7 +80,7 @@ export function createFaceHead(reduce = false, options = {}) {
   }
 
   function update(dt, { speaking = false, envelope = 0, bias = null,
-    listening = false, inputVolume = 0 } = {}) {
+    listening = false, inputVolume = 0, performance = null } = {}) {
     pose.blink = false;
     if (!Number.isFinite(dt) || dt <= 0) return pose;
     const previousRoll = renderedRoll;
@@ -272,6 +272,19 @@ export function createFaceHead(reduce = false, options = {}) {
       rollBiasActive = Boolean(bias?.headRoll) || Math.abs(pose.roll - position[2]) > 1e-8;
     }
     renderedRoll = pose.roll;
+    // Foreground moods gather the existing spontaneous gaze/turn instead of
+    // changing its scheduling or random draws. The authored tilt is separate
+    // from incidental speech roll and has already been smoothed/rate-limited.
+    if (performance && (performance.focus || performance.roll || performance.pitch || performance.gazeY)) {
+      const focus = clamp(performance.focus || 0, 0, 1);
+      pose.yaw *= 1 - focus;
+      pose.x *= 1 - focus;
+      pose.gazeX *= 1 - focus;
+      pose.gazeY *= 1 - focus;
+      pose.roll += (performance.roll || 0) * motionScale;
+      pose.pitch += (performance.pitch || 0) * motionScale;
+      pose.gazeY = clamp(pose.gazeY + (performance.gazeY || 0), -1, 1);
+    }
     if (bias?.gazeX) pose.gazeX = clamp(pose.gazeX + bias.gazeX, -1, 1);
     if (bias?.gazeY) pose.gazeY = clamp(pose.gazeY + bias.gazeY, -1, 1);
     const attention = clamp(position[9], 0, 1);

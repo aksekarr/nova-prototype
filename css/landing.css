@@ -107,6 +107,10 @@ button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke
 .presence .presence-note { margin-top: 7px; color: var(--soft); font: 10px/1.6 var(--mono); letter-spacing: .01em; text-transform: none; }
 .presence .form-error { max-width: 340px; margin: 8px auto 0; color: #e5c2b0; font: 10px/1.6 var(--mono); letter-spacing: 0; text-transform: none; }
 .voice-controls { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px 12px; pointer-events: auto; }
+.capture-controls { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px 12px; pointer-events: auto; }
+.capture-controls label { display: flex; align-items: center; gap: 7px; font: 10px var(--mono); color: var(--soft); }
+.capture-controls input { accent-color: var(--violet); }
+.capture-controls .quiet-button { min-height: 36px; padding: 8px 12px; font-size: 10px; }
 .quiet-button {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
   min-height: 44px; padding: 11px 16px; border-radius: 4px; border: 1px solid var(--border);

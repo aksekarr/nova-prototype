@@ -57,6 +57,7 @@ const TUNING = {
     edgeOvershoot: 0.5, widen: 0.5, spacing: 2.6, threshold: 0
   },
   moodAmount: 1,
+  moodPerformanceAmount: 1,
   browFlashAmount: 1,
   microAmount: 1,
   micro: {

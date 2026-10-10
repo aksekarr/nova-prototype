@@ -5,7 +5,7 @@ import { resolveLandingRoute } from '../js/landing-route.js';
 const entry = 'https://example.test/seni/index.html';
 
 test('ordinary entries stay on the landing page', () => {
-  for (const suffix of ['', '#hello', '?n=48000&dpr=2', '?tune=0&live=0&orbit=0', '?live=true']) {
+  for (const suffix of ['', '#hello', '?n=48000&dpr=2', '?capture=1', '?tune=0&live=0&orbit=0', '?live=true']) {
     assert.equal(resolveLandingRoute(entry + suffix), null);
   }
 });

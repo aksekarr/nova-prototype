@@ -6,11 +6,11 @@
   <meta name="theme-color" content="#04060c">
   <meta name="description" content="Meet Seni, a voice and a cloud of light.">
   <title>Seni · A presence in the light</title>
-  <link rel="stylesheet" href="./css/landing.css">
+  <link rel="stylesheet" href="./css/landing.css?v=20261010-capture">
   <script type="importmap">
     { "imports": { "three": "./js/vendor/three.module.js", "three/addons/": "./js/vendor/addons/" } }
   </script>
-  <script type="module" src="./js/landing.js"></script>
+  <script type="module" src="./js/landing.js?v=20261010-capture"></script>
 </head>
 <body data-phase="booting">
   <canvas id="stage" aria-label="A living nebula of light, becoming Seni's face"></canvas>
@@ -79,6 +79,11 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 4-4 4H1v4h3l4 4V4Z"/><g class="sound-waves"><path d="M11 7a5 5 0 0 1 0 6m3-9a9 9 0 0 1 0 12"/></g><path class="sound-cross" d="m12 7 6 6m0-6-6 6"/></svg>
         <span id="sound-label">Sound on</span>
       </button>
+    </div>
+    <div class="capture-controls" id="capture-controls" role="group" aria-label="Reply capture" hidden>
+      <label><input id="capture-replies" type="checkbox" checked> Capture replies</label>
+      <button class="quiet-button" id="download-replies" type="button" disabled>Download text</button>
+      <button class="quiet-button" id="download-captures" type="button" disabled>Download captures (0)</button>
     </div>
     <p class="sr-only" id="status" role="status" aria-live="polite">Preparing Seni.</p>
   </footer>

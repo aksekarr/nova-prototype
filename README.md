@@ -60,6 +60,19 @@ URL options:
 - `?tune=1`: tuning panel and Speech lab (plays the pre-generated lines). Tuning resets on reload; tuned values are baked into `js/stage.js`.
 - `?n=…`: particle count, 4,000 to 64,000.
 
+Main-page reply capture: open `http://127.0.0.1:4173/?capture=1`. With a live
+agent configured, **Capture replies** starts enabled. **Download text** saves
+Seni's replies as a readable text file; **Download captures** saves the existing
+replay-compatible JSON with her reply text, output audio and timing. Only replies
+that finish or are interrupted are exported; interrupted replies are marked and
+their text may include words whose audio was cut off. Capture is selected at each
+reply's start. Unchecking it leaves that reply intact and skips subsequent ones.
+No user transcripts, microphone audio or provider identifiers are captured. Data
+stays in memory across conversations on that page until reload; download before
+closing or refreshing. Files go to the browser's download location and are never
+uploaded automatically. Keep capture files outside the repository or in the
+ignored `refs/live/` folder. The ordinary main URL retains its existing controls.
+
 Dev captures: with `?live=1`, enable **Capture replies** before a reply starts, then **Download captures** to save the session. Captures contain only output delivered to the live player and stay in memory until downloaded. Keep files in `refs/live/` (already gitignored); never commit them. With `?tune=1`, use **Load capture…** and **Replay** in Speech lab; add `&live=1` to capture **Simulate live** replies too.
 
 ## Other pages
@@ -91,6 +104,23 @@ and speech-lab interactions live in `js/study-flow.js`; `js/live.js` is loaded o
 with `?live=1`. Pure pose and expression controllers live in
 `js/face-expressions.js`, with their existing exports also available from
 `js/face.js`.
+
+Avi approved the expressive mood pass on 10 Oct 2026; it is enabled by default.
+The four quieter mood tags now give the outer form a coordinated, finite beat:
+**Thoughtful** tilts elastically with an asymmetric gather, **Curious** gathers
+upright and centres its gaze, **Confidently** settles taller, and **Warmly**
+broadens softly. Their existing eye poses and 3.5-second cue envelopes remain
+authoritative. During their peak, competing facial micro motion is reduced and
+brow flashes/new ordinary accents yield; particle flow and speech articulation
+continue. Authored tilt has a separate smoothed, speed-limited contribution;
+incidental speech-roll limits and random scheduling are unchanged. The protected
+eyes/nose/lips stay clear of silhouette deformation. Reduced motion omits the
+new body/gaze contribution. Capture replay uses this same driver.
+
+**Expressive moods** in `movement.html` compares this pass with the previous
+performance. Curious and Thoughtful now play timed synthetic cues rather than
+holding manual poses. The tuning panel's **Expressive moods (0 = previous)**
+control supports the same A/B while replaying captured replies in Speech lab.
 
 The movement preview also has silent **Sighs**, **Confidently**, **Warmly**,
 **Chuckle** and **Laughing** examples. **Updated tags** compares the three revised

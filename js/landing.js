@@ -62,6 +62,16 @@ async function startLanding() {
     const state = { mode: 'nebula', modeT: 0, clock: 0, speaking: false };
     // Retain word timing without putting speech text into the page.
     const voice = createVoice({ caption: document.createElement('p'), readout: document.createElement('span') });
+    if (params.get('capture') === '1' && agentConfig) {
+      const { createLandingCapture } = await import('./landing-capture.js');
+      if (pageGone) return;
+      createLandingCapture({ stream: voice.stream, controls: {
+        capture: document.getElementById('capture-replies'),
+        download: document.getElementById('download-captures'),
+        text: document.getElementById('download-replies')
+      } });
+      document.getElementById('capture-controls').hidden = false;
+    }
     const agent = agentConfig ? createAgentSession({ voice,
       onReplyText: text => face.setReplyText?.(text), onChange: () => flow?.agentChanged() }) : null;
     function setMode(mode) {

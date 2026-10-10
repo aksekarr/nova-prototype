@@ -308,6 +308,58 @@ export function createCueExpressions() {
   get state() { return { replyId, position: lastPosition, output, retired: [...retired], releasing: Boolean(release), blockingEvent, gestureWindows }; } };
 }
 
+// The existing mood envelopes own every beat. This display contribution adds
+// no cue parser, random stream, retrigger or independent performance clock.
+const MOOD_PERFORMANCES = {
+  thinking: { roll: 12, pitch: -1, focus: .7, gazeY: -.18,
+    width: .055, height: -.025, bend: .045, asymmetry: .045 },
+  focused: { pitch: -.8, focus: 1.2, width: -.17, height: .14 },
+  confident: { pitch: 1.2, focus: .8, width: -.065, height: .14 },
+  warm: { roll: -2.5, pitch: -.3, focus: .55,
+    width: .15, height: -.085, bend: -.018, asymmetry: -.015 }
+};
+const PERFORMANCE_KEYS = ['roll', 'pitch', 'focus', 'gazeY', 'width', 'height', 'bend', 'asymmetry'];
+export function createMoodPerformance(reduce = false) {
+  let amount = 0;
+  const state = Object.fromEntries(PERFORMANCE_KEYS.map(key => [key, 0]));
+  state.priority = 0;
+  const velocity = { ...state };
+  const smooth = value => { const x = clamp(value, 0, 1); return x * x * (3 - 2 * x); };
+  return { state, applyTuning(tuning) {
+    if (Number.isFinite(tuning.moodPerformanceAmount)) amount = clamp(tuning.moodPerformanceAmount, 0, 1);
+  }, update(dt, weights, enabled = true, gap = false) {
+    const gain = enabled ? amount : 0;
+    const coverage = Object.entries(weights).reduce((sum, [name, weight]) =>
+      sum + (MOOD_PERFORMANCES[name] ? Math.max(0, weight) : 0), 0);
+    state.priority = smooth(coverage / .65) * gain;
+    // Gap clocks hold the new body/gaze contribution exactly. Natural endings,
+    // interruptions and replacement replies inherit the cue controller's fade.
+    const step = gap ? 0 : Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const frequency = 11, decay = Math.exp(-frequency * step);
+    for (const key of PERFORMANCE_KEYS) {
+      let target = 0;
+      if (!reduce && gain) for (const [name, weight] of Object.entries(weights))
+        target += (MOOD_PERFORMANCES[name]?.[key] || 0) * Math.max(0, weight) * gain;
+      if (step === 0) continue;
+      const previous = state[key], offset = previous - target;
+      const tangent = velocity[key] + frequency * offset;
+      let next = target + (offset + tangent * step) * decay;
+      let speed = (velocity[key] - frequency * tangent * step) * decay;
+      if (key === 'roll') {
+        // A deliberate tilt has its own larger range; incidental speech roll
+        // retains the old bounds. Limit speed too, including interrupted turns.
+        next = clamp(next, previous - 24 * step, previous + 24 * step);
+        speed = clamp(speed, -24, 24);
+      }
+      state[key] = next; velocity[key] = speed;
+      if (Math.abs(next - target) < 1e-8 && Math.abs(speed) < 1e-7) {
+        state[key] = target; velocity[key] = 0;
+      }
+    }
+    return state;
+  } };
+}
+
 // This stream belongs only to flashes. Text is hashed at the playback boundary;
 // neither the text nor draws from any existing motion generator are retained.
 export function createBrowFlashes() {

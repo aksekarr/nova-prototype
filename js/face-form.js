@@ -9,7 +9,7 @@ export function createFaceForm({ base, edge, end, width, height, centreX, centre
   }
   let time = 0, amount = 1, weight = 0;
   const state = { weight: 0, attention: 0, width: 0, height: 0, bend: 0, asymmetry: 0 };
-  function update(dt, eligible, attention = 0) {
+  function update(dt, eligible, attention = 0, performance = null) {
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     time += dt;
     const target = !reduce && eligible ? amount : 0;
@@ -25,9 +25,13 @@ export function createFaceForm({ base, edge, end, width, height, centreX, centre
     state.height = weight * (-swell * .65 * freedom + .045 * a);
     state.bend = weight * freedom * .036 * Math.sin(time * .53 + .4);
     state.asymmetry = weight * freedom * .035 * Math.sin(time * .41 + 1.7);
+    // Authored moods reuse exactly the same protected outer-particle field.
+    // Their envelopes already fade on the playback clock, including handovers.
+    if (!reduce && performance) for (const key of ['width', 'height', 'bend', 'asymmetry'])
+      state[key] += Number.isFinite(performance[key]) ? performance[key] : 0;
   }
   function apply(source, attachment, mix = 1) {
-    if (weight === 0 || mix === 0) return source;
+    if (mix === 0 || !(state.width || state.height || state.bend || state.asymmetry)) return source;
     output.set(source);
     for (let i = 0, j = 0; i < end; i++, j += 3) {
       // Reuse the broad expression protection field. Eyes, nose and lips stay
